@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:amap_flutter_map/amap_flutter_map.dart';
-import 'package:amap_flutter_base/amap_flutter_base.dart';
-import 'package:amap_flutter_location/amap_flutter_location.dart';
-import '../config/app_config.dart';
 import '../services/location_service.dart';
 import '../services/auth_service.dart';
+import 'map_page.dart';
+import 'attendance_page.dart';
+import 'track_replay_page.dart';
 
-/// 首页 - 高德地图 + 实时定位
+/// 首页 - 功能导航
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -15,73 +14,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final LocationService _locationService = LocationService();
-  final AuthService _authService = AuthService();
-  final AMapFlutterLocation _amapLocation = AMapFlutterLocation();
-
-  AMapController? _mapController;
-  Set<Marker> _markers = {};
-  bool _isTracking = false;
-  String _statusText = '未定位';
+  final AuthService _auth = AuthService();
 
   @override
   void initState() {
     super.initState();
-    _initLocationListener();
-  }
-
-  void _initLocationListener() {
-    _locationService.onLocationChanged = (position) {
-      setState(() {
-        _statusText =
-            '纬度: ${position.latitude.toStringAsFixed(6)}, 经度: ${position.longitude.toStringAsFixed(6)}';
-      });
-      _updateMarker(position.latitude, position.longitude);
-      _animateToPosition(position.latitude, position.longitude);
-    };
-    _locationService.onError = (error) {
-      setState(() => _statusText = '定位错误: $error');
-    };
-  }
-
-  void _updateMarker(double lat, double lng) {
-    setState(() {
-      _markers = {
-        Marker(
-          position: LatLng(lat, lng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        ),
-      };
-    });
-  }
-
-  void _animateToPosition(double lat, double lng) {
-    _mapController?.moveCamera(CameraUpdate.newLatLngZoom(
-      LatLng(lat, lng),
-      16,
-    ), animated: true);
-  }
-
-  Future<void> _toggleTracking() async {
-    if (_isTracking) {
-      _locationService.stopTracking();
-      setState(() {
-        _isTracking = false;
-        _statusText = '定位已停止';
-      });
-    } else {
-      final ok = await _locationService.startTracking();
-      if (ok) {
-        setState(() => _isTracking = true);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _locationService.stopTracking();
-    _amapLocation.destroy();
-    super.dispose();
   }
 
   @override
@@ -89,86 +26,134 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('外勤定位'),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              _locationService.stopTracking();
-              await _authService.logout();
+              LocationService().stopTracking();
+              await _auth.logout();
               if (!context.mounted) return;
               Navigator.pushReplacementNamed(context, '/login');
             },
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // 高德地图
-          AMapWidget(
-            apiKey: AMapApiKey(androidKey: AppConfig.amapApiKey, iosKey: AppConfig.amapApiKey),
-            initialCameraPosition: CameraPosition(
-              target: LatLng(39.909187, 116.397451), // 北京天安门
-              zoom: 14,
-            ),
-            markers: _markers,
-            myLocationStyleOptions: MyLocationStyleOptions(true),
-            onMapCreated: (controller) {
-              _mapController = controller;
-            },
-          ),
-
-          // 底部状态面板
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 32,
-            child: Card(
-              elevation: 4,
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 用户信息卡片
+            Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          _isTracking
-                              ? Icons.gps_fixed
-                              : Icons.gps_off,
-                          color: _isTracking ? Colors.green : Colors.grey,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _statusText,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _toggleTracking,
-                        icon: Icon(_isTracking
-                            ? Icons.stop
-                            : Icons.play_arrow),
-                        label: Text(_isTracking ? '停止定位' : '开始定位'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isTracking
-                              ? Colors.red
-                              : Colors.blue,
-                          foregroundColor: Colors.white,
-                        ),
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.blue[100],
+                      child: Text(
+                        (_auth.userName ?? '?')[0],
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue),
                       ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_auth.userName ?? '未登录', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                        Text('ID: ${(_auth.userId ?? '').length > 8 ? (_auth.userId!.substring(0, 8)) : (_auth.userId ?? '')}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
+
+            const SizedBox(height: 20),
+
+            // 功能入口网格
+            Expanded(
+              child: GridView.count(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.3,
+                children: [
+                  _buildFeatureCard(
+                    icon: Icons.map,
+                    title: '实时地图',
+                    subtitle: '定位 & 打卡',
+                    color: Colors.blue,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MapPage())),
+                  ),
+                  _buildFeatureCard(
+                    icon: Icons.fingerprint,
+                    title: '打卡记录',
+                    subtitle: '查看签到历史',
+                    color: Colors.green,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendancePage())),
+                  ),
+                  _buildFeatureCard(
+                    icon: Icons.route,
+                    title: '轨迹回放',
+                    subtitle: '查看运动路线',
+                    color: Colors.orange,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrackReplayPage())),
+                  ),
+                  _buildFeatureCard(
+                    icon: Icons.settings,
+                    title: '权限设置',
+                    subtitle: '定位权限引导',
+                    color: Colors.grey,
+                    onTap: () => Navigator.pushNamed(context, '/permission'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(height: 12),
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

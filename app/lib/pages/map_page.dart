@@ -1,10 +1,4 @@
 // 地图首页 - 实时定位显示 + 打卡入口
-//
-// 本期功能：
-//   - 高德地图加载
-//   - 显示当前位置（蓝点）
-//   - 显示定位状态
-//   - 打卡按钮（入口，打卡逻辑放到第二期）
 
 import 'dart:async';
 
@@ -15,8 +9,10 @@ import 'package:geolocator/geolocator.dart';
 import '../services/location_service.dart';
 import '../services/background_service.dart';
 import '../services/location_uploader.dart';
+import '../services/attendance_service.dart';
 import '../models/location_point.dart';
 import 'permission_guide_page.dart';
+import 'attendance_page.dart';
 import '../config/amap_key.dart';
 
 class MapPage extends StatefulWidget {
@@ -29,6 +25,7 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   AMapController? _mapController;
   bool _isLocating = false;
+  bool _isCheckInLoading = false;
   String _statusText = '定位初始化中...';
   String _modeText = '省电';
   int _cacheCount = 0;
@@ -43,11 +40,9 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    // 清除回调以避免内存泄漏
     final locService = LocationService();
     locService.onLocationChanged = null;
     locService.onError = null;
-    // 清除上传器回调，避免 AuthError 引用已销毁的 context
     LocationUploader().onAuthError = null;
     super.dispose();
   }
@@ -55,7 +50,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 从后台回到前台时刷新状态
       _refreshStatus();
     }
   }
@@ -63,7 +57,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   Future<void> _initLocation() async {
     final locService = LocationService();
 
-    // 监听定位数据 - 使用 onLocationChanged 回调
     locService.onLocationChanged = (Position position) {
       if (mounted) {
         setState(() {
@@ -71,14 +64,12 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
           _statusText =
               '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
         });
-        // 移动地图到当前位置
         _mapController?.moveCamera(
           CameraUpdate.newLatLng(
               LatLng(position.latitude, position.longitude)),
         );
       }
 
-      // 加入上传队列（异常保护）
       try {
         LocationUploader().enqueue(
           LocationPoint(
@@ -90,32 +81,23 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
             timestamp: position.timestamp,
           ),
         );
-      } catch (_) {
-        // 队列写入失败不影响定位
-      }
+      } catch (_) {}
     };
 
-    // 监听定位错误
     locService.onError = (String msg) {
       if (mounted) {
         setState(() => _statusText = msg);
       }
     };
 
-    // 监听认证失效（Token过期时跳回登录页）
     LocationUploader().onAuthError = () {
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/login');
       }
     };
 
-    // 启动定位
     await locService.startTracking();
-
-    // 启动后台服务
     await BackgroundService().start();
-
-    // 定时刷新缓存计数
     _refreshStatus();
   }
 
@@ -128,19 +110,82 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     }
   }
 
+  /// 打卡 — 显示签到/签退选择
+  void _onCheckIn() async {
+    final pos = LocationService().currentPosition;
+    if (pos == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('尚未获取到位置，请稍后重试'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    // 选择打卡类型
+    final type = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('打卡'),
+        content: const Text('请选择打卡类型：'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'checkin'),
+            child: const Text('签到', style: TextStyle(fontSize: 16)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'checkout'),
+            child: const Text('签退', style: TextStyle(fontSize: 16)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+
+    if (type == null || !mounted) return;
+
+    setState(() => _isCheckInLoading = true);
+    try {
+      final result = await AttendanceService().checkin(
+        type: type,
+        lng: pos.longitude,
+        lat: pos.latitude,
+        address: '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}',
+      );
+
+      if (!mounted) return;
+
+      final checkTime = result['checkTime'] ?? '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${type == "checkin" ? "签到" : "签退"}成功 ($checkTime)'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('打卡失败: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isCheckInLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // ---- 地图 ----
           AMapWidget(
             apiKey: const AMapApiKey(
               androidKey: AMapConfig.androidKey,
               iosKey: AMapConfig.iosKey,
             ),
             initialCameraPosition: const CameraPosition(
-              target: LatLng(39.909, 116.397), // 默认天安门
+              target: LatLng(39.909, 116.397),
               zoom: 15,
             ),
             onMapCreated: (controller) {
@@ -188,7 +233,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // 定位状态图标
             Container(
               width: 10,
               height: 10,
@@ -198,7 +242,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 8),
-            // 定位信息
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -216,11 +259,9 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            // 缓存待上传数量
             if (_cacheCount > 0)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.orange[100],
                   borderRadius: BorderRadius.circular(10),
@@ -239,33 +280,54 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
   Widget _buildBottomBar() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // 回到当前位置
-          FloatingActionButton.small(
-            heroTag: 'locate',
-            onPressed: _locateMe,
-            child: const Icon(Icons.my_location),
-          ),
-          const SizedBox(width: 16),
-          // 打卡按钮（入口，功能下一期实现）
-          Expanded(
-            child: SizedBox(
-              height: 52,
-              child: ElevatedButton.icon(
-                onPressed: _onCheckIn,
-                icon: const Icon(Icons.fingerprint, size: 24),
-                label: const Text('打卡', style: TextStyle(fontSize: 16)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(26),
+          // 主按钮行：定位 + 打卡 + 记录
+          Row(
+            children: [
+              FloatingActionButton.small(
+                heroTag: 'locate',
+                onPressed: _locateMe,
+                child: const Icon(Icons.my_location),
+              ),
+              const SizedBox(width: 16),
+              // 打卡按钮
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: _isCheckInLoading ? null : _onCheckIn,
+                    icon: _isCheckInLoading
+                        ? const SizedBox(
+                            width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.fingerprint, size: 24),
+                    label: Text(_isCheckInLoading ? '打卡中...' : '打卡', style: const TextStyle(fontSize: 16)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      elevation: 4,
+                    ),
                   ),
-                  elevation: 4,
                 ),
               ),
-            ),
+              const SizedBox(width: 12),
+              // 记录按钮
+              FloatingActionButton.small(
+                heroTag: 'records',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AttendancePage()),
+                ),
+                backgroundColor: Colors.white,
+                child: const Icon(Icons.history, color: Colors.blue),
+              ),
+            ],
           ),
         ],
       ),
@@ -284,7 +346,6 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 定位到我的位置
   void _locateMe() {
     final pos = LocationService().currentPosition;
     if (pos != null) {
@@ -292,12 +353,5 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
         CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
       );
     }
-  }
-
-  /// 打卡按钮点击（第二期实现完整流程）
-  void _onCheckIn() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('打卡功能将在下一期实现')),
-    );
   }
 }

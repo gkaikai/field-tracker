@@ -3,6 +3,7 @@ import 'services/auth_service.dart';
 import 'services/location_service.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
+import 'pages/permission_guide_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,7 @@ class FieldTrackerApp extends StatelessWidget {
       routes: {
         '/login': (context) => const LoginPage(),
         '/home': (context) => const HomePage(),
+        '/permission': (context) => const PermissionGuidePage(),
       },
     );
   }
