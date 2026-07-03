@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- ========== 应用基本信息 ========== -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleDisplayName</key>
+    <string>Field Tracker</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>field_tracker</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(FLUTTER_BUILD_NAME)</string>
+    <key>CFBundleVersion</key>
+    <string>$(FLUTTER_BUILD_NUMBER)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+
+    <!-- ========== 定位权限提示文案 ========== -->
+    <!-- 使用时定位（前台） -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Field Tracker 需要使用您的位置信息来在地图上显示您的当前位置。</string>
+    <!-- 始终定位（后台） -->
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Field Tracker 需要在后台持续获取您的位置以记录外勤轨迹和考勤打卡。关闭后将无法使用轨迹追踪功能。</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Field Tracker 需要在后台持续获取您的位置以记录外勤轨迹和考勤打卡。</string>
+
+    <!-- ========== 后台模式 ========== -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>location</string>        <!-- 后台定位 -->
+        <string>fetch</string>           <!-- 定时后台唤醒 -->
+        <string>processing</string>      <!-- 后台处理任务 -->
+    </array>
+
+    <!-- ========== 推送通知 ========== -->
+    <key>UIBackgroundNotification</key>
+    <false/>
+
+    <!-- ========== 状态栏 ========== -->
+    <key>UIStatusBarHidden</key>
+    <false/>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <false/>
+
+    <!-- ========== 界面方向 ========== -->
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <!-- ========== 高德地图 SDK API Key ========== -->
+    <key>AMapApiKey</key>
+    <string>9debae73ed4f59ce9f934c9b1fda1a23</string>
+
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+</dict>
+</plist>

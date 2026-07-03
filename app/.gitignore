@@ -1,0 +1,27 @@
+*.iml
+.idea/
+.DS_Store
+build/
+flutter_*.png
+.gradle/
+local.properties
+.symlinks/
+**/doc/export/
+**/doc/api/
+android/.gradle/
+android/app/build/
+ios/.symlinks/
+ios/Pods/
+ios/.xcode-environment
+*.lock
+*.log
+
+# Dart / Flutter
+.dart_tool/
+.packages
+.pub/
+build/
+
+# IDE
+.vscode/
+.idea/

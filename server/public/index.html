@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Field Tracker - 管理后台</title>
+  <!-- 高德地图安全密钥（2021年后申请的Key必须） -->
+  <script>
+    window._AMapSecurityConfig = {
+      securityJsCode: 'f54f44a83e49995348e72713f2ca1b9a',
+    };
+  </script>
+  <!-- 高德地图 JS API -->
+  <script src="https://webapi.amap.com/maps?v=2.0&key=7ac68442bb2d4a49a4aab6237ea29f48&plugin=AMap.ToolBar"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, 'Helvetica Neue', sans-serif; }
+    
+    #header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      height: 48px; background: #1a73e8; color: #fff;
+      display: flex; align-items: center; padding: 0 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    #header h1 { font-size: 16px; font-weight: 500; flex: 1; }
+    #header .online-count { font-size: 12px; opacity: 0.9; }
+    
+    #sidebar {
+      position: fixed; top: 48px; left: 0; bottom: 0;
+      width: 220px; background: #f5f5f5; border-right: 1px solid #e0e0e0;
+      overflow-y: auto; padding: 8px 0;
+    }
+    .user-item {
+      padding: 8px 16px; cursor: pointer; border-bottom: 1px solid #eee;
+      display: flex; align-items: center; gap: 8px;
+      transition: background 0.2s;
+    }
+    .user-item:hover { background: #e3f2fd; }
+    .user-item.selected { background: #bbdefb; }
+    .user-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    }
+    .user-dot.online { background: #4caf50; }
+    .user-dot.offline { background: #bdbdbd; }
+    .user-name { font-size: 13px; flex: 1; }
+    .user-badge {
+      font-size: 11px; color: #666; background: #e0e0e0;
+      padding: 1px 6px; border-radius: 8px;
+    }
+
+    #map_container {
+      position: fixed; top: 48px; left: 220px; right: 0; bottom: 0;
+    }
+
+    #login {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.5);
+    }
+    #login-box {
+      background: #fff; border-radius: 12px; padding: 32px;
+      width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    #login-box h2 { text-align: center; margin-bottom: 24px; color: #1a73e8; }
+    #login-box input {
+      width: 100%; padding: 10px 12px; margin-bottom: 12px;
+      border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+    }
+    #login-box button {
+      width: 100%; padding: 10px; background: #1a73e8; color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; cursor: pointer;
+    }
+    #login-box button:hover { background: #1557b0; }
+    #login-box .error { color: #d32f2f; font-size: 13px; margin-top: 8px; text-align: center; }
+
+    @media (max-width: 768px) {
+      #sidebar { display: none; }
+      #map_container { left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 登录弹窗 -->
+  <div id="login">
+    <div id="login-box">
+      <h2>Field Tracker</h2>
+      <p style="text-align:center;font-size:13px;color:#666;margin-bottom:16px;">管理后台登录</p>
+      <input id="phone" type="text" placeholder="手机号" value="13900000001">
+      <input id="password" type="password" placeholder="密码" value="123456">
+      <button onclick="login()">登 录</button>
+      <div id="login-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- 头部 -->
+  <div id="header">
+    <h1>📍 Field Tracker</h1>
+    <span class="online-count">在线: <span id="onlineCount">0</span> 人</span>
+  </div>
+
+  <!-- 侧边栏 -->
+  <div id="sidebar">
+    <div style="padding:12px 16px;font-size:13px;color:#999;">在线人员</div>
+    <div id="userList"></div>
+  </div>
+
+  <!-- 地图 -->
+  <div id="map_container"></div>
+
+  <script>
+    // ========== 全局状态 ==========
+    let token = '';
+    let map = null;
+    let markers = {};  // userId -> marker
+    let ws = null;
+    let users = [];
+    let selectedUserId = null;
+    let polyline = null;
+
+    // ========== 登录 ==========
+    async function login() {
+      const phone = document.getElementById('phone').value;
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('login-error');
+
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, password }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          token = data.token;
+          document.getElementById('login').style.display = 'none';
+          initMap();
+          loadUsers();
+          connectWS();
+          startPolling();
+        } else {
+          errorEl.textContent = data.message || '登录失败';
+        }
+      } catch (err) {
+        errorEl.textContent = '网络错误，请检查服务器';
+      }
+    }
+
+    // ========== 初始化地图 ==========
+    function initMap() {
+      map = new AMap.Map('map_container', {
+        zoom: 14,
+        center: [116.397428, 39.90923],  // 默认北京
+        mapStyle: 'fresh',
+      });
+      map.addControl(new AMap.ToolBar());
+    }
+
+    // ========== 加载用户列表 ==========
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/v1/users', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        users = await res.json();
+        renderUserList();
+      } catch (err) {
+        console.error('加载用户失败:', err);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+    }
+
+    function renderUserList() {
+      const list = document.getElementById('userList');
+      list.innerHTML = users.map(u => `
+        <div class="user-item ${u.id === selectedUserId ? 'selected' : ''}" 
+             onclick="selectUser('${u.id}')">
+          <span class="user-dot offline" id="dot-${u.id}"></span>
+          <span class="user-name">${escapeHtml(u.name)}</span>
+          <span class="user-badge">${escapeHtml(u.role)}</span>
+        </div>
+      `).join('');
+    }
+
+    function selectUser(userId) {
+      selectedUserId = userId;
+      renderUserList();
+      // 在地图上高亮该用户轨迹（N/A for now）
+    }
+
+    // ========== WebSocket 连接 ==========
+    function connectWS() {
+      const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/location?token=${token}`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => console.log('WS 已连接');
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'location_update') {
+            updateMarker(data);
+          }
+        } catch (e) {}
+      };
+
+      ws.onclose = () => {
+        console.log('WS 断开，5秒后重连...');
+        setTimeout(connectWS, 5000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    // ========== 更新地图标记 ==========
+    function updateMarker(data) {
+      const { userId, lng, lat, speed, battery } = data;
+      const lnglat = [parseFloat(lng), parseFloat(lat)];
+
+      // 更新在线状态圆点
+      const dot = document.getElementById(`dot-${userId}`);
+      if (dot) {
+        dot.className = 'user-dot online';
+      }
+
+      // 更新/创建标记
+      if (markers[userId]) {
+        markers[userId].setPosition(lnglat);
+      } else {
+        const marker = new AMap.Marker({
+          position: lnglat,
+          label: { content: '', offset: new AMap.Pixel(0, -30) },
+        });
+        marker.setLabel({ content: `<div style="background:#1a73e8;color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;">${escapeHtml(getUserName(userId))}</div>` });
+        markers[userId] = marker;
+        map.add(marker);
+      }
+
+      // 更新在线人数
+      document.getElementById('onlineCount').textContent = Object.keys(markers).length;
+    }
+
+    function getUserName(userId) {
+      const user = users.find(u => u.id === userId);
+      return user ? user.name : userId.slice(0, 8);
+    }
+
+    // ========== HTTP 轮询（补丁：WebSocket 断连时的后备） ==========
+    function startPolling() {
+      setInterval(async () => {
+        try {
+          const res = await fetch('/api/v1/location/online', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          data.forEach(u => updateMarker(u));
+        } catch (e) {}
+      }, 10000);
+    }
+
+    // ========== 未选中的用户，点击地图空白处选中自己 ==========
+    window.onload = () => {
+      document.getElementById('password').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') login();
+      });
+    };
+  </script>
+</body>
+</html>

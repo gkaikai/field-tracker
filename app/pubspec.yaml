@@ -1,0 +1,43 @@
+name: field_tracker
+description: 外勤定位追踪APP - 实时定位、轨迹回放、考勤打卡
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.3.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  # 高德地图
+  amap_flutter_map: ^3.0.0
+  amap_flutter_location: ^3.0.0
+  # 定位
+  geolocator: ^11.0.0
+  # 后台任务
+  workmanager: ^0.7.0
+  # 网络请求
+  dio: ^5.4.0
+  # 状态管理
+  provider: ^6.1.0
+  # 本地存储
+  shared_preferences: ^2.2.0
+  # 通知
+  flutter_local_notifications: ^17.0.0
+  # 权限
+  permission_handler: ^11.0.0
+  # Toast提示
+  fluttertoast: ^8.2.0
+  flutter_background_service: ^5.1.0
+  device_info_plus: ^10.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.11
+
+flutter:
+  uses-material-design: true
