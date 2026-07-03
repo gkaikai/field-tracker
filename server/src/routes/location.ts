@@ -1,237 +1,216 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import { body, param, query } from 'express-validator';
 import { pgPool, redis } from '../config/database';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
+import { AppError } from '../errors/AppError';
+import { validate } from '../middleware/validate';
 
 const router = Router();
+
+/** 所有 location 端点都需要登录 */
 router.use(authMiddleware);
 
-// ============================================================
-// POST /api/v1/location/report  - 单点上报
-// ============================================================
-router.post('/report', async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { lng, lat, accuracy, speed, altitude, bearing, battery } = req.body;
+// 单点上报 — POST /api/v1/location/report
+router.post('/report',
+  validate([
+    body('lng')
+      .exists().withMessage('经度不能为空')
+      .isFloat({ min: -180, max: 180 }).withMessage('经度超出有效范围(-180~180)'),
+    body('lat')
+      .exists().withMessage('纬度不能为空')
+      .isFloat({ min: -85.05, max: 85.05 }).withMessage('纬度超出有效范围(-85~85)'),
+  ]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const { lng, lat, accuracy, speed, timestamp } = req.body;
 
-    if (lng === undefined || lng === null || lng === '' ||
-        lat === undefined || lat === null || lat === '') {
-      return res.status(400).json({ message: '经纬度不能为空' });
-    }
-
-    // 坐标有效性校验
-    const lngNum = parseFloat(lng);
-    const latNum = parseFloat(lat);
-    if (isNaN(lngNum) || isNaN(latNum) ||
-        lngNum < -180 || lngNum > 180 ||
-        latNum < -85.05 || latNum > 85.05) {
-      return res.status(400).json({ message: '经纬度超出有效范围' });
-    }
-
-    const recordedAt = new Date().toISOString();
-
-    // 1. 写入 Redis GEO（实时位置，TTL 5分钟）
-    await redis.geoadd('realtime:locations', lng, lat, user.userId);
-    await redis.expire('realtime:locations', 300);
-    // 同时存一份详细信息
-    await redis.hset(`user:${user.userId}:last`, {
-      lng, lat, accuracy: accuracy || 0, speed: speed || 0,
-      battery: battery || 0, timestamp: recordedAt
-    });
-    await redis.expire(`user:${user.userId}:last`, 300);
-
-      // 2. 异步写入 PostgreSQL
-    pgPool.query(
-      `INSERT INTO location_records (user_id, lng, lat, accuracy, speed, altitude, bearing, battery, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [user.userId, lng, lat, accuracy, speed, altitude, bearing, battery, recordedAt]
-    ).catch(err => console.error('写入定位记录失败:', err.message));
-
-    res.json({ status: 'ok' });
-  } catch (err) {
-    console.error('上报定位错误:', err);
-    res.status(500).json({ message: '服务器内部错误' });
-  }
-});
-
-// ============================================================
-// POST /api/v1/location/batch  - 批量上报（App端合并后上传）
-// ============================================================
-router.post('/batch', async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { points } = req.body;
-
-    if (!points || !Array.isArray(points) || points.length === 0) {
-      return res.status(400).json({ message: '定位数据不能为空' });
-    }
-
-    // 坐标有效性校验（每个点）
-    for (const p of points) {
-      const lng = parseFloat(p.lng);
-      const lat = parseFloat(p.lat);
-      if (isNaN(lng) || isNaN(lat) ||
-          lng < -180 || lng > 180 ||
-          lat < -85.05 || lat > 85.05) {
-        return res.status(400).json({ message: '定位数据中包含无效坐标' });
-      }
-    }
-
-    // 批量写入（参数化查询防SQL注入）
-    const placeholders = points.map((_: any, i: number) =>
-      `($${i * 7 + 1}, $${i * 7 + 2}, $${i * 7 + 3}, $${i * 7 + 4}, $${i * 7 + 5}, $${i * 7 + 6}, $${i * 7 + 7})`
-    ).join(',');
-
-    const values = points.flatMap((p: any) => {
-      const recordedAt = p.timestamp || new Date().toISOString();
-      return [user.userId, p.lng, p.lat, p.accuracy || 0, p.speed || 0, p.battery || 0, recordedAt];
-    });
-
-    await pgPool.query(`
-      INSERT INTO location_records (user_id, lng, lat, accuracy, speed, battery, recorded_at)
-      VALUES ${placeholders}
-    `, values);
-
-    // 更新 Redis 实时位置（用最后一条）
-    const last = points[points.length - 1];
-    await redis.geoadd('realtime:locations', last.lng, last.lat, user.userId);
-    await redis.expire('realtime:locations', 300);
-
-    res.json({ status: 'ok', count: points.length });
-  } catch (err) {
-    console.error('批量上报错误:', err);
-    res.status(500).json({ message: '服务器内部错误' });
-  }
-});
-
-// ============================================================
-// GET /api/v1/location/current/:userId  - 获取某人实时位置
-// ============================================================
-router.get('/current/:userId', async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.params;
-
-    // 从 Redis 获取
-    const positions = await redis.geopos('realtime:locations', userId);
-    if (positions && positions[0]) {
-      const lastInfo = await redis.hgetall(`user:${userId}:last`);
-      res.json({
-        userId,
-        lng: positions[0][0],
-        lat: positions[0][1],
-        accuracy: lastInfo.accuracy,
-        speed: lastInfo.speed,
-        battery: lastInfo.battery,
-        timestamp: lastInfo.timestamp,
-        online: true,
+      // 写入 Redis GEO（实时位置，TTL 5分钟）
+      const redisKey = `location:${user.userId}`;
+      await redis.geoadd('locations:live', lng, lat, user.userId);
+      await redis.expire('locations:live', 300);
+      await redis.hset(redisKey, {
+        lng: lng.toString(),
+        lat: lat.toString(),
+        accuracy: (accuracy || 0).toString(),
+        speed: (speed || 0).toString(),
+        timestamp: (timestamp || Date.now()).toString(),
+        userId: user.userId,
+        name: user.phone,
       });
-    } else {
-      // Redis 没有则查数据库最后一条
-      const result = await pgPool.query(`
-        SELECT lng, lat, accuracy, speed, battery, recorded_at
-        FROM location_records
-        WHERE user_id = $1
-        ORDER BY recorded_at DESC LIMIT 1
-      `, [userId]);
+      await redis.expire(redisKey, 300);
 
-      if (result.rows.length > 0) {
-        res.json({ ...result.rows[0], online: false });
-      } else {
-        res.status(404).json({ message: '暂无定位数据' });
-      }
-    }
-  } catch (err) {
-    res.status(500).json({ message: '服务器内部错误' });
-  }
-});
-
-// ============================================================
-// GET /api/v1/location/online  - 获取所有在线人员位置
-// ============================================================
-router.get('/online', async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-
-    // 获取所属部门所有成员（简化版：管理员看所有人，员工看自己）
-    let userIds: string[];
-    if (user.role === 'admin') {
-      const result = await pgPool.query('SELECT id FROM users WHERE is_active = true');
-      userIds = result.rows.map(r => r.id);
-    } else {
-      // 获取同部门人员
-      const deptResult = await pgPool.query(
-        'SELECT id FROM users WHERE department_id = (SELECT department_id FROM users WHERE id = $1)',
-        [user.userId]
+      // 异步写入 PostgreSQL（历史轨迹）
+      const ts = timestamp ? new Date(timestamp) : new Date();
+      await pgPool.query(
+        `INSERT INTO location_records (user_id, lng, lat, accuracy, speed, recorded_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [user.userId, lng, lat, accuracy || 0, speed || 0, ts],
       );
-      userIds = deptResult.rows.map(r => r.id);
+
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
     }
+  },
+);
 
-    // 从 Redis 批量查询实时位置
-    const pipeline = redis.pipeline();
-    userIds.forEach(uid => {
-      pipeline.geopos('realtime:locations', uid);
-      pipeline.hgetall(`user:${uid}:last`);
-    });
-    const results = await pipeline.exec();
+// 批量上报 — POST /api/v1/location/batch
+router.post('/batch',
+  validate([
+    body('points')
+      .isArray({ min: 1 }).withMessage('批量位置数据不能为空'),
+    body('points.*.lng')
+      .isFloat({ min: -180, max: 180 }).withMessage('存在无效经度'),
+    body('points.*.lat')
+      .isFloat({ min: -85.05, max: 85.05 }).withMessage('存在无效纬度'),
+    body('points')
+      .isArray({ max: 100 }).withMessage('单次批量上传不能超过100条'),
+  ]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const { points } = req.body;
 
-    const onlineUsers = [];
-    for (let i = 0; i < userIds.length; i++) {
-      const posResult = results![i * 2];
-      const infoResult = results![i * 2 + 1];
-      const pos = posResult?.[1] as [number, number][] | null;
-      const info = infoResult?.[1] as Record<string, string> | null;
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      let idx = 1;
 
-      if (pos && pos[0]) {
-        onlineUsers.push({
-          userId: userIds[i],
-          lng: pos[0][0],
-          lat: pos[0][1],
-          accuracy: info?.accuracy,
-          speed: info?.speed,
-          battery: info?.battery,
-          timestamp: info?.timestamp,
-        });
+      for (const p of points) {
+        placeholders.push(`($${idx}, $${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5})`);
+        values.push(
+          user.userId,
+          p.lng,
+          p.lat,
+          p.accuracy || 0,
+          p.speed || 0,
+          p.timestamp ? new Date(p.timestamp) : new Date(),
+        );
+        idx += 6;
       }
+
+      await pgPool.query(
+        `INSERT INTO location_records (user_id, lng, lat, accuracy, speed, recorded_at) VALUES ${placeholders.join(',')}`,
+        values,
+      );
+
+      // 更新 Redis 实时位置（用最后一条）
+      const last = points[points.length - 1];
+      await redis.geoadd('locations:live', last.lng, last.lat, user.userId);
+      await redis.expire('locations:live', 300);
+
+      res.json({ success: true, count: points.length });
+    } catch (err) {
+      next(err);
     }
+  },
+);
 
-    res.json(onlineUsers);
-  } catch (err) {
-    console.error('获取在线人员错误:', err);
-    res.status(500).json({ message: '服务器内部错误' });
-  }
-});
-
-// ============================================================
-// GET /api/v1/location/track/:userId  - 获取历史轨迹
-// ============================================================
-router.get('/track/:userId', async (req: Request, res: Response) => {
+// 获取某人实时位置 — 员工只能查自己，管理员/经理可查所有人
+router.get('/current/:userId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { userId } = req.params;
-    const { date } = req.query;
+    const user = (req as any).user as JwtPayload;
+    const targetUserId = req.params.userId;
 
-    let dateFilter = '';
-    const params: any[] = [userId];
-
-    if (date) {
-      dateFilter = 'AND recorded_at >= $2::date AND recorded_at < ($2::date + INTERVAL \'1 day\')';
-      params.push(date as string);
+    // 非管理员/经理只能查自己
+    if (user.role === 'employee' && targetUserId !== user.userId) {
+      throw new AppError('AUTH_FORBIDDEN');
     }
 
-    const result = await pgPool.query(`
-      SELECT lng, lat, 
-             accuracy, speed, altitude, bearing, battery, recorded_at
-      FROM location_records
-      WHERE user_id = $1 ${dateFilter}
-      ORDER BY recorded_at ASC
-    `, params);
+    const redisKey = `location:${targetUserId}`;
+    const exists = await redis.exists(redisKey);
 
+    if (!exists) {
+      return res.json({ online: false });
+    }
+
+    const data = await redis.hgetall(redisKey);
     res.json({
-      userId,
-      points: result.rows,
-      total: result.rows.length,
+      online: true,
+      userId: targetUserId,
+      lng: parseFloat(data.lng),
+      lat: parseFloat(data.lat),
+      accuracy: parseFloat(data.accuracy || '0'),
+      speed: parseFloat(data.speed || '0'),
+      timestamp: parseInt(data.timestamp || '0', 10),
     });
   } catch (err) {
-    res.status(500).json({ message: '服务器内部错误' });
+    next(err);
   }
 });
+
+// 获取在线人员列表 — 仅管理员/经理可见
+router.get('/online',
+  roleMiddleware('manager', 'admin'),
+  async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const results = await redis.geopos('locations:live', ...Array(100).fill(0).map((_, i) => `*`));
+    // 改用 scan 方式获取
+    const keys = await redis.keys('location:*');
+    const users: any[] = [];
+
+    for (const key of keys) {
+      const data = await redis.hgetall(key);
+      const userId = key.replace('location:', '');
+      users.push({
+        userId,
+        lng: parseFloat(data.lng),
+        lat: parseFloat(data.lat),
+        accuracy: parseFloat(data.accuracy || '0'),
+        speed: parseFloat(data.speed || '0'),
+        timestamp: parseInt(data.timestamp || '0', 10),
+      });
+    }
+
+    res.json({ users, total: users.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// 获取历史轨迹 — 员工只能查自己，管理员/经理可查所有人
+router.get('/track/:userId',
+  validate([
+    query('date')
+      .optional()
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('日期格式无效(YYYY-MM-DD)'),
+  ]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const targetUserId = req.params.userId;
+
+      // 非管理员/经理只能查自己
+      if (user.role === 'employee' && targetUserId !== user.userId) {
+        throw new AppError('AUTH_FORBIDDEN');
+      }
+      const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      const startOfDay = new Date(`${date}T00:00:00+08:00`);
+      const endOfDay = new Date(`${date}T23:59:59.999+08:00`);
+
+      const result = await pgPool.query(
+        `SELECT lng, lat, accuracy, speed, recorded_at
+         FROM location_records
+         WHERE user_id = $1 AND recorded_at >= $2 AND recorded_at <= $3
+         ORDER BY recorded_at ASC`,
+        [targetUserId, startOfDay, endOfDay],
+      );
+
+      res.json({
+        userId: targetUserId,
+        date,
+        points: result.rows.map((r: any) => ({
+          lng: parseFloat(r.lng),
+          lat: parseFloat(r.lat),
+          accuracy: r.accuracy,
+          speed: r.speed,
+          timestamp: new Date(r.recorded_at).getTime(),
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;

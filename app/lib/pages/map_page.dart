@@ -47,6 +47,8 @@ class _MapPageState extends State<MapPage> with WidgetsBindingObserver {
     final locService = LocationService();
     locService.onLocationChanged = null;
     locService.onError = null;
+    // 清除上传器回调，避免 AuthError 引用已销毁的 context
+    LocationUploader().onAuthError = null;
     super.dispose();
   }
 

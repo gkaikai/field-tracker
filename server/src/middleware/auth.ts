@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { AppError } from '../errors/AppError';
+import { ErrorCodes } from '../errors/errorCodes';
 
 /// JWT_SECRET 每次请求时从环境变量读取（避免模块加载时序问题）
 function getJwtSecret(): string {
@@ -24,7 +26,7 @@ export function generateToken(payload: JwtPayload): string {
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: '未提供认证Token' });
+    throw new AppError('AUTH_TOKEN_MISSING');
   }
 
   const token = authHeader.slice(7);
@@ -33,15 +35,20 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     (req as any).user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ message: 'Token无效或已过期' });
+    throw new AppError('AUTH_TOKEN_INVALID');
   }
 }
 
-// 管理员权限中间件
-export function adminMiddleware(req: Request, res: Response, next: NextFunction) {
-  const user = (req as any).user as JwtPayload;
-  if (user.role !== 'admin') {
-    return res.status(403).json({ message: '需要管理员权限' });
-  }
-  next();
+/** 角色权限中间件 — 允许指定的角色访问 */
+export function roleMiddleware(...allowedRoles: string[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const user = (req as any).user as JwtPayload;
+    if (!allowedRoles.includes(user.role)) {
+      throw new AppError('AUTH_FORBIDDEN');
+    }
+    next();
+  };
 }
+
+// 管理员权限中间件（兼容旧代码）
+export const adminMiddleware = roleMiddleware('admin');
