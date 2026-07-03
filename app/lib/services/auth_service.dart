@@ -36,16 +36,16 @@ class AuthService {
   }
 
   /// 登录
-  Future<Map<String, dynamic>> login(String username, String password) async {
+  Future<Map<String, dynamic>> login(String phone, String password) async {
     final resp = await _api.post(AppConfig.apiLogin, data: {
-      'username': username,
+      'phone': phone,
       'password': password,
     });
 
     final data = resp.data as Map<String, dynamic>;
     _token = data['token'] as String?;
     _userId = (data['user']?['id'] ?? '').toString();
-    _userName = data['user']?['name'] as String? ?? username;
+    _userName = data['user']?['name'] as String? ?? phone;
     _department = data['user']?['department'] as String?;
 
     if (_token != null) {

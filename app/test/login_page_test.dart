@@ -12,7 +12,7 @@ void main() {
       // 检查必要元素
       expect(find.text('外勤定位'), findsOneWidget);
       expect(find.text('登 录'), findsOneWidget);
-      expect(find.text('用户名'), findsOneWidget);
+      expect(find.text('手机号'), findsOneWidget);
       expect(find.text('密码'), findsOneWidget);
     });
 
@@ -22,7 +22,7 @@ void main() {
       );
 
       // 清空输入框
-      final usernameField = find.widgetWithText(TextFormField, '用户名');
+      final usernameField = find.widgetWithText(TextFormField, '手机号');
       final passwordField = find.widgetWithText(TextFormField, '密码');
       expect(usernameField, findsOneWidget);
       expect(passwordField, findsOneWidget);

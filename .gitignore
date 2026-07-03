@@ -39,3 +39,5 @@ server/node_modules/
 
 # Logs
 *.log
+**/build/
+ios/build/

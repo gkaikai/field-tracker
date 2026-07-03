@@ -74,12 +74,12 @@ class _LoginPageState extends State<LoginPage> {
                   TextFormField(
                     controller: _usernameController,
                     decoration: const InputDecoration(
-                      labelText: '用户名',
-                      prefixIcon: Icon(Icons.person),
+                      labelText: '手机号',
+                      prefixIcon: Icon(Icons.phone_android),
                       border: OutlineInputBorder(),
                     ),
                     validator: (v) =>
-                        v == null || v.isEmpty ? '请输入用户名' : null,
+                        v == null || v.isEmpty ? '请输入手机号' : null,
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

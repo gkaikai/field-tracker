@@ -30,13 +30,13 @@ void main() {
       expect(find.text('实时定位 · 轨迹追踪 · 考勤打卡'), findsOneWidget);
 
       // 检查表单元素
-      expect(find.text('用户名'), findsOneWidget);
+      expect(find.text('手机号'), findsOneWidget);
       expect(find.text('密码'), findsOneWidget);
       expect(find.text('登 录'), findsOneWidget);
 
       // 检查图标
       expect(find.byIcon(Icons.location_on), findsOneWidget);
-      expect(find.byIcon(Icons.person), findsOneWidget);
+      expect(find.byIcon(Icons.phone_android), findsOneWidget);
       expect(find.byIcon(Icons.lock), findsOneWidget);
     });
 
@@ -44,7 +44,7 @@ void main() {
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: LoginPage()));
 
-      // 清空用户名输入框
+      // 清空手机号输入框
       final usernameField = tester.widget<TextFormField>(
         find.byType(TextFormField).first,
       );
@@ -63,7 +63,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // 验证错误消息出现
-      expect(find.text('请输入用户名'), findsOneWidget);
+      expect(find.text('请输入手机号'), findsOneWidget);
       expect(find.text('请输入密码'), findsOneWidget);
     });
 
@@ -83,7 +83,7 @@ void main() {
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: LoginPage()));
 
-      // 输入用户名
+      // 输入手机号
       final usernameField = find.byType(TextFormField).first;
       await tester.enterText(usernameField, 'custom_user');
       await tester.pump();
@@ -104,11 +104,11 @@ void main() {
       );
     });
 
-    testWidgets('空用户名验证失败 (Empty username triggers validation error)',
+    testWidgets('空手机号验证失败 (Empty username triggers validation error)',
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: LoginPage()));
 
-      // 清空用户名
+      // 清空手机号
       final usernameField = find.byType(TextFormField).first;
       await tester.enterText(usernameField, '');
       await tester.pump();
@@ -117,7 +117,7 @@ void main() {
       await tester.tap(find.text('登 录'));
       await tester.pumpAndSettle();
 
-      expect(find.text('请输入用户名'), findsOneWidget);
+      expect(find.text('请输入手机号'), findsOneWidget);
     });
   });
 
@@ -185,7 +185,7 @@ void main() {
       // 验证两个输入框都存在
       expect(find.byType(TextFormField), findsNWidgets(2));
 
-      // 点击用户名输入框
+      // 点击手机号输入框
       await tester.tap(find.byType(TextFormField).first);
       await tester.pump();
       // 输入框应获得焦点（不会出错）
