@@ -14,7 +14,10 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     return;
   }
 
-  // 未预期的异常 — 记录日志 + 返回通用错误
+  // 未预期的异常 — 记录日志 + 返回详细错误（开发环境）
+  const internal = ErrorCodes.INTERNAL_ERROR;
+  const isDev = process.env.NODE_ENV !== 'production';
+
   logger.error('未捕获异常', {
     error: err.message,
     stack: err.stack,
@@ -23,10 +26,9 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     body: sanitizeBody(req.body),
   });
 
-  const internal = ErrorCodes.INTERNAL_ERROR;
   res.status(500).json({
     code: internal.code,
-    message: '服务器内部错误',
+    message: isDev ? `服务器内部错误: ${err.message}` : '服务器内部错误',
   });
 }
 

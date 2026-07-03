@@ -140,6 +140,31 @@
 
 ---
 
+### Flutter Attendance (Client) — ⚠️ Partial
+
+**文件**: `app/lib/pages/map_page.dart`
+**功能**: 打卡按钮占位
+**缺口**:
+- 打卡按钮仅显示 "打卡功能将在下一期实现" 的 SnackBar
+- 需要对接真实后端 API：checkin/records/rules/stats
+- 缺少考勤历史页面
+
+---
+
+### Flutter Fence (Client) — ❌ Missing
+
+**功能**: 无电子围栏相关UI
+**缺口**: 完全未开发 — 无围栏列表显示、围栏内检测、进出提醒
+
+---
+
+### Flutter Track Replay (Client) — ❌ Missing
+
+**功能**: 无轨迹回放功能
+**缺口**: 完全未开发 — 无历史轨迹回放UI
+
+---
+
 ## 服务端 (Node.js / Express + TypeScript)
 
 ### Server Auth Route — ✅ Complete
@@ -190,16 +215,29 @@
 
 ---
 
-### Attendance (考勤打卡) — ❌ Missing
+### Attendance Routes (Server) — ✅ Complete
 
-**文件**: 无
-**功能**: 打卡签到/签退、考勤记录查询
+**文件**: `server/src/routes/attendance.ts`
+**端点**: POST /checkin, GET /records (分页), GET /rules, POST /rules, DELETE /rules/:id, GET /stats
+**功能**: 打卡签到/签退（位置+WiFi验证）、考勤规则CRUD、考勤统计、时间规则校验
 **测试**: 无
-**缺口**: 完全未开发
-- `POST /api/v1/attendance/checkin` — 未实现
-- `GET /api/v1/attendance/records` — 未实现
-- 虽然 SQL schema 中已定义 `attendance_records` 和 `attendance_rules` 表，但后端无对应路由
-- 客户端 `MapPage` 的打卡按钮仅显示占位 SnackBar
+
+---
+
+### Fence Routes (Server) — ✅ Complete
+
+**文件**: `server/src/routes/fence.ts`
+**端点**: GET /, POST /, PUT /:id, DELETE /:id, POST /check (haversine距离计算), GET /events
+**功能**: 圆形电子围栏CRUD、部门绑定、进出事件自动记录、围栏距离检测
+**测试**: 无
+
+---
+
+### Web Admin Panel (Phase 2) — ✅ Complete
+
+**文件**: `server/public/index.html`
+**功能**: 4标签管理面板(实时地图/考勤管理/电子围栏/人员管理)、AMap地图集成、WebSocket实时位置更新
+**缺口**: 无 — 前端UI已完成，与后端API和WebSocket完整对接
 
 ---
 
@@ -223,4 +261,9 @@
 | Server | User Route | ⚠️ Partial | 0 | 0 |
 | Server | WebSocket Service | ✅ Complete | 0 | 0 |
 | Server | Database Config & Seed | ✅ Complete | 0 | 0 |
-| Server | Attendance | ❌ Missing | 0 | 0 |
+| Server | Attendance Routes | ✅ Complete | 0 | 0 |
+| Server | Fence Routes | ✅ Complete | 0 | 0 |
+| Server | Web Admin Panel | ✅ Complete | 0 | 0 |
+| Flutter UI | Attendance (Client) | ⚠️ Partial | 0 | 0 |
+| Flutter UI | Fence (Client) | ❌ Missing | 0 | 0 |
+| Flutter UI | Track Replay (Client) | ❌ Missing | 0 | 0 |

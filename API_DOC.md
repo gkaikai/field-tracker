@@ -377,13 +377,413 @@
 
 ## POST /api/v1/attendance/checkin
 
-> **❌ 未实现** — 数据库 `attendance_records` 表已创建，但服务端无对应路由，客户端打卡按钮仅为占位符。
+**描述**: 员工打卡签到/签退（需 Token）。支持位置验证与 WiFi BSSID 验证，按考勤规则校验打卡有效性
+
+**请求头**: `Authorization: Bearer ***`
+
+**请求体**:
+```json
+{
+  "type": "string (必填, 'checkin' | 'checkout')",
+  "lng": "number (必填, 经度)",
+  "lat": "number (必填, 纬度)",
+  "address": "string (可选, 地址描述)",
+  "photo_url": "string (可选, 打卡照片 URL)",
+  "wifi_bssid": "string (可选, 当前连接 WiFi 的 BSSID)"
+}
+```
+
+**成功响应** (200):
+```json
+{
+  "success": true,
+  "recordId": "uuid",
+  "checkTime": "ISO datetime string",
+  "type": "checkin"
+}
+```
+
+**错误响应**:
+- 400: `{"message": "打卡类型不能为空"}` 或 `{"message": "经纬度不能为空"}`
+- 401: `{"message": "Token 无效或已过期"}`
+- 403: `{"message": "不在允许的打卡范围内"}` (位置/WiFi 校验未通过)
+- 500: `{"message": "服务器内部错误"}`
+
+**备注**: 系统根据当前用户所在部门自动匹配考勤规则。若规则要求位置验证但坐标匹配失败，或要求 WiFi 验证但 BSSID 不匹配，返回 403。
 
 ---
 
 ## GET /api/v1/attendance/records
 
-> **❌ 未实现** — 同上，考勤记录查询功能待开发。
+**描述**: 分页查询考勤记录（需 Token）。管理员查看所有记录，普通员工仅查看自己记录
+
+**请求头**: `Authorization: Bearer ***`
+
+**查询参数**:
+- `page` (可选, 默认 1): 页码
+- `pageSize` (可选, 默认 20): 每页条数
+- `startDate` (可选): 起始日期, 格式 `YYYY-MM-DD`
+- `endDate` (可选): 结束日期, 格式 `YYYY-MM-DD`
+- `type` (可选): 打卡类型筛选, `checkin` | `checkout`
+
+**成功响应** (200):
+```json
+{
+  "records": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "user_name": "string",
+      "type": "checkin",
+      "lng": "number",
+      "lat": "number",
+      "address": "string | null",
+      "photo_url": "string | null",
+      "check_time": "ISO datetime string",
+      "created_at": "ISO datetime string"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 100,
+    "totalPages": 5
+  }
+}
+```
+
+**错误响应**:
+- 400: `{"message": "日期参数无效"}`
+- 401: Token 无效
+
+---
+
+## GET /api/v1/attendance/rules
+
+**描述**: 获取考勤规则列表（需 Manager/Admin 角色）
+
+**请求头**: `Authorization: Bearer ***`
+
+**成功响应** (200):
+```json
+[
+  {
+    "id": "uuid",
+    "name": "string (规则名称)",
+    "rule_type": "location | wifi | both",
+    "center_lat": "number",
+    "center_lng": "number",
+    "radius_meters": "number",
+    "wifi_ssid": "string | null",
+    "wifi_bssid": "string | null",
+    "is_active": true,
+    "created_at": "ISO datetime string",
+    "updated_at": "ISO datetime string"
+  }
+]
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+
+---
+
+## POST /api/v1/attendance/rules
+
+**描述**: 创建考勤规则（需 Admin 角色）
+
+**请求头**: `Authorization: Bearer ***`
+
+**请求体**:
+```json
+{
+  "name": "string (必填, 规则名称)",
+  "rule_type": "string (必填, 'location' | 'wifi' | 'both')",
+  "center_lat": "number (若 location/both 则必填)",
+  "center_lng": "number (若 location/both 则必填)",
+  "radius_meters": "number (若 location/both 则必填)",
+  "wifi_ssid": "string (若 wifi/both 则必填, WiFi 名称)",
+  "wifi_bssid": "string (若 wifi/both 则必填, WiFi MAC 地址)"
+}
+```
+
+**成功响应** (201):
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "rule_type": "both",
+  "is_active": true,
+  "created_at": "ISO datetime string"
+}
+```
+
+**错误响应**:
+- 400: `{"message": "规则名称不能为空"}` 或 `{"message": "必填参数缺失"}`
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+- 500: 服务器内部错误
+
+---
+
+## DELETE /api/v1/attendance/rules/:id
+
+**描述**: 删除考勤规则（需 Admin 角色）。物理删除记录
+
+**路径参数**: `id` — 规则 UUID
+
+**请求头**: `Authorization: Bearer ***`
+
+**成功响应** (200):
+```json
+{
+  "message": "规则已删除"
+}
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+- 404: `{"message": "规则不存在"}`
+
+---
+
+## GET /api/v1/attendance/stats
+
+**描述**: 考勤统计（需 Manager/Admin 角色）。按用户汇总指定时间范围内的打卡次数
+
+**请求头**: `Authorization: Bearer ***`
+
+**查询参数**:
+- `startDate` (可选): 起始日期, 格式 `YYYY-MM-DD`
+- `endDate` (可选): 结束日期, 格式 `YYYY-MM-DD`
+
+**成功响应** (200):
+```json
+{
+  "startDate": "2026-07-01",
+  "endDate": "2026-07-03",
+  "stats": [
+    {
+      "user_id": "uuid",
+      "name": "张三",
+      "checkin_count": 3,
+      "checkout_count": 2
+    }
+  ]
+}
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+
+---
+
+## GET /api/v1/fences
+
+**描述**: 获取电子围栏列表（需 Manager/Admin 角色）
+
+**请求头**: `Authorization: Bearer ***`
+
+**成功响应** (200):
+```json
+[
+  {
+    "id": "uuid",
+    "name": "string (围栏名称)",
+    "center_lat": "number",
+    "center_lng": "number",
+    "radius_meters": "number",
+    "department_id": "uuid | null",
+    "department_name": "string | null",
+    "is_active": true,
+    "created_at": "ISO datetime string",
+    "updated_at": "ISO datetime string"
+  }
+]
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+
+---
+
+## POST /api/v1/fences
+
+**描述**: 创建电子围栏（需 Admin 角色）
+
+**请求头**: `Authorization: Bearer ***`
+
+**请求体**:
+```json
+{
+  "name": "string (必填, 围栏名称)",
+  "center_lat": "number (必填, 围栏中心纬度)",
+  "center_lng": "number (必填, 围栏中心经度)",
+  "radius_meters": "number (必填, 围栏半径, 米)",
+  "department_id": "uuid (可选, 关联部门 ID)"
+}
+```
+
+**成功响应** (201):
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "center_lat": "number",
+  "center_lng": "number",
+  "radius_meters": "number",
+  "department_id": "uuid | null",
+  "is_active": true,
+  "created_at": "ISO datetime string"
+}
+```
+
+**错误响应**:
+- 400: `{"message": "围栏名称不能为空"}` 或 `{"message": "经纬度超出有效范围"}`
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+- 500: 服务器内部错误
+
+---
+
+## PUT /api/v1/fences/:id
+
+**描述**: 更新电子围栏（需 Admin 角色）。支持部分更新，仅发送需要修改的字段
+
+**路径参数**: `id` — 围栏 UUID
+
+**请求头**: `Authorization: Bearer ***`
+
+**请求体** (全部可选，至少提供一个):
+```json
+{
+  "name": "string (可选)",
+  "center_lat": "number (可选)",
+  "center_lng": "number (可选)",
+  "radius_meters": "number (可选)",
+  "is_active": "boolean (可选)"
+}
+```
+
+**成功响应** (200):
+```json
+{
+  "id": "uuid",
+  "name": "string",
+  "center_lat": "number",
+  "center_lng": "number",
+  "radius_meters": "number",
+  "is_active": true,
+  "updated_at": "ISO datetime string"
+}
+```
+
+**错误响应**:
+- 400: `{"message": "至少提供一个需要更新的字段"}`
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+- 404: `{"message": "围栏不存在"}`
+
+---
+
+## DELETE /api/v1/fences/:id
+
+**描述**: 删除电子围栏（需 Admin 角色）。软删除 — 将 `is_active` 设为 `false`
+
+**路径参数**: `id` — 围栏 UUID
+
+**请求头**: `Authorization: Bearer ***`
+
+**成功响应** (200):
+```json
+{
+  "message": "围栏已禁用"
+}
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
+- 404: `{"message": "围栏不存在"}`
+
+---
+
+## POST /api/v1/fences/check
+
+**描述**: 检查坐标是否在围栏内（需 Token）。使用 Haversine 公式计算球面距离，支持筛选特定围栏或检查全部围栏
+
+**请求头**: `Authorization: Bearer ***`
+
+**请求体**:
+```json
+{
+  "lng": "number (必填, 待检测经度)",
+  "lat": "number (必填, 待检测纬度)",
+  "fence_id": "uuid (可选, 指定围栏 ID；不传则检查所有活跃围栏)"
+}
+```
+
+**成功响应** (200):
+```json
+{
+  "fences": [
+    {
+      "fenceId": "uuid",
+      "fenceName": "string",
+      "distance": "number (与围栏中心的距离, 米)",
+      "inside": true
+    }
+  ]
+}
+```
+
+**错误响应**:
+- 400: `{"message": "经纬度不能为空"}`
+- 401: Token 无效
+
+---
+
+## GET /api/v1/fences/events
+
+**描述**: 获取围栏进出事件记录（需 Manager/Admin 角色）。支持按用户筛选和分页
+
+**请求头**: `Authorization: Bearer ***`
+
+**查询参数**:
+- `userId` (可选): 按用户 ID 筛选
+- `page` (可选, 默认 1): 页码
+- `pageSize` (可选, 默认 20): 每页条数
+
+**成功响应** (200):
+```json
+{
+  "events": [
+    {
+      "id": "uuid",
+      "fence_id": "uuid",
+      "fence_name": "string",
+      "user_id": "uuid",
+      "user_name": "string",
+      "event_type": "enter | exit",
+      "lng": "number",
+      "lat": "number",
+      "occurred_at": "ISO datetime string"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 50,
+  "totalPages": 3
+}
+```
+
+**错误响应**:
+- 401: Token 无效
+- 403: `{"message": "无权限访问"}`
 
 ---
 

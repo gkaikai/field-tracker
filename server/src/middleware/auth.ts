@@ -13,6 +13,7 @@ export interface JwtPayload {
   userId: string;
   phone: string;
   role: string;
+  departmentId?: string;
 }
 
 // 生成 Token

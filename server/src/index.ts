@@ -35,10 +35,14 @@ app.use(express.static('public'));
 import authRoutes from './routes/auth';
 import locationRoutes from './routes/location';
 import userRoutes from './routes/user';
+import attendanceRoutes from './routes/attendance';
+import fenceRoutes from './routes/fence';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/attendance', attendanceRoutes);
+app.use('/api/v1/fences', fenceRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {

@@ -41,6 +41,7 @@ router.post('/login',
         userId: user.id,
         phone: user.phone,
         role: user.role,
+        departmentId: user.department_id,
       });
 
       res.json({
