@@ -35,6 +35,10 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
 
   // 轨迹统计
   double _totalDistanceKm = 0;
+  /// 轨迹点列表展开/收起
+  bool _showPointList = false;
+  final _pointListScrollController = ScrollController();
+  int _hoveredPointIndex = -1;
   double _avgSpeedKmh = 0;
   Duration _totalDuration = Duration.zero;
 
@@ -54,7 +58,8 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     try {
       final dateStr =
           '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      final userId = AuthService().userId ?? 'me';
+      final auth = AuthService();
+      final userId = auth.userId ?? 'me';
       final resp = await _api
           .get('/api/v1/location/track/$userId', query: {'date': dateStr});
       final data = resp.data as Map<String, dynamic>;
@@ -577,6 +582,121 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                                 MyLocationStyleOptions(true),
                           ),
           ),
+
+          // 列表切换按钮 + 轨迹点列表
+          if (_points.isNotEmpty)
+            Container(
+              color: Colors.white,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () => setState(() {
+                      _showPointList = !_showPointList;
+                      if (_showPointList && _pointListScrollController.hasClients) {
+                        _pointListScrollController.animateTo(
+                          0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+                      }
+                    }),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _showPointList ? Icons.unfold_less : Icons.unfold_more,
+                            size: 16, color: Colors.blue,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _showPointList ? '收起轨迹点列表' : '展开轨迹点列表 (${_points.length}个点)',
+                            style: const TextStyle(fontSize: 13, color: Colors.blue),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_showPointList)
+                    SizedBox(
+                      height: 180,
+                      child: ListView.builder(
+                        controller: _pointListScrollController,
+                        itemCount: _points.length,
+                        itemBuilder: (_, i) {
+                          final p = _points[i];
+                          final lat = p['lat'] as double;
+                          final lng = p['lng'] as double;
+                          final ts = p['timestamp'] as int;
+                          final acc = p['accuracy'] as double? ?? 0;
+                          final spd = p['speed'] as double?;
+                          final dt = DateTime.fromMillisecondsSinceEpoch(ts);
+                          final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+                          return InkWell(
+                            onTap: () {
+                              setState(() => _sliderValue = i.toDouble());
+                              _mapController?.moveCamera(
+                                CameraUpdate.newLatLng(LatLng(lat, lng)),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: i == _sliderValue.toInt()
+                                    ? Colors.blue.withOpacity(0.08)
+                                    : null,
+                                border: Border(
+                                  bottom: BorderSide(color: Colors.grey[200]!, width: 0.5),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 36,
+                                    child: Text(
+                                      '#${i + 1}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: i == _sliderValue.toInt() ? Colors.blue : Colors.grey[500],
+                                        fontWeight: i == _sliderValue.toInt() ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 72,
+                                    child: Text(timeStr,
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+                                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 56,
+                                    child: Text(
+                                      '精度${acc.toStringAsFixed(0)}m',
+                                      style: TextStyle(fontSize: 10, color: acc < 15 ? Colors.green : Colors.grey[600]),
+                                    ),
+                                  ),
+                                  if (spd != null)
+                                    SizedBox(
+                                      width: 44,
+                                      child: Text(
+                                        '${(spd * 3.6).toStringAsFixed(1)}km/h',
+                                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
 
           // 当前位置信息
           if (currentPos != null)
