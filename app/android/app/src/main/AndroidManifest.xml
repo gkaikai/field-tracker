@@ -65,11 +65,5 @@
                 tools:node="remove" />
         </provider>
 
-        <!-- 后台定位前台服务（flutter_background_service） -->
-        <service
-            android:name="com.shinowproject.backgorundservice.BackgroundService"
-            android:foregroundServiceType="location"
-            android:exported="false" />
-
     </application>
 </manifest>

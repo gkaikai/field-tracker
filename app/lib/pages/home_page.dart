@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/location_service.dart';
 import '../services/auth_service.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'map_page.dart';
 import 'attendance_page.dart';
 import 'track_replay_page.dart';
@@ -54,11 +53,6 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.logout),
             onPressed: () async {
               LocationService().stopTracking();
-              // 停止后台前台服务
-              try {
-                final service = FlutterBackgroundService();
-                service.invoke('stopService');
-              } catch (_) {}
               await _auth.logout();
               if (!context.mounted) return;
               Navigator.pushReplacementNamed(context, '/login');

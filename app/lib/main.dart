@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'services/auth_service.dart';
 import 'services/location_service.dart';
 import 'services/update_service.dart';
-import 'services/background_location_service.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
 import 'pages/permission_guide_page.dart';
@@ -15,13 +14,6 @@ void main() async {
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
   };
-
-  // 初始化后台定位服务（前台Service保活）
-  try {
-    await initializeBackgroundService();
-  } catch (e) {
-    debugPrint('BackgroundService init skipped: $e');
-  }
 
   // 尝试恢复登录态
   final authService = AuthService();
