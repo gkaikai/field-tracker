@@ -35,6 +35,23 @@ jobs:
         run: flutter pub get
         working-directory: app
 
+      - name: 修复插件AGP 8.x兼容性
+        run: |
+          # amap_flutter_location 缺少 namespace，AGP 8.7+ 要求显式声明
+          for f in $(find ~/.pub-cache/hosted/pub.dev/amap_flutter_location-* -name "build.gradle" -path "*/android/build.gradle"); do
+            if ! grep -q "namespace" "$f" 2>/dev/null; then
+              sed -i 's/compileSdkVersion 29/namespace "com.amap.flutter.location"\n    compileSdk 34/' "$f"
+              echo "✅ 已修复: $f"
+            fi
+          done
+          for f in $(find ~/.pub-cache/hosted/pub.dev/amap_flutter_map-* -name "build.gradle" -path "*/android/build.gradle"); do
+            if ! grep -q "namespace" "$f" 2>/dev/null; then
+              sed -i 's/compileSdkVersion 29/namespace "com.amap.flutter.amap_flutter_map"\n    compileSdk 34/' "$f"
+              echo "✅ 已修复: $f"
+            fi
+          done
+          echo "✅ 插件兼容性修复完成"
+
       - name: 构建 Release APK
         run: flutter build apk --release
         working-directory: app
@@ -46,9 +63,7 @@ jobs:
       - name: 读取更新日志
         id: changelog
         run: |
-          # 从git tag中提取message作为更新日志
           git tag -l '${{ steps.version.outputs.tag }}' --format='%(contents:body)' > /tmp/changelog.txt
-          echo "changelog=$(cat /tmp/changelog.txt)" >> $GITHUB_OUTPUT
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
