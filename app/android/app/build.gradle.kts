@@ -18,8 +18,7 @@ val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "
 
 android {
     namespace = "com.fieldtracker.app"
-    compileSdk = 35
-    ndkVersion = "27.0.12077973"
+    compileSdk = 34
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true

@@ -1,6 +1,4 @@
 # 外勤定位APP — 自动发布工作流
-# 用法: git tag v1.0.1 && git push origin v1.0.1
-# 自动构建APK并发布到GitHub Releases
 
 name: Build & Release
 
