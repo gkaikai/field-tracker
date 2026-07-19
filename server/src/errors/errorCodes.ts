@@ -57,7 +57,7 @@ export function getHttpStatus(errorCode: ErrorCode): number {
   switch (module) {
     case 'AUTH':
       if (errorCode === 'AUTH_FORBIDDEN') return 403;
-      if (errorCode === 'AUTH_TOKEN_MISSING' || errorCode === 'AUTH_TOKEN_INVALID') return 401;
+      if (errorCode === 'AUTH_TOKEN_MISSING' || errorCode === 'AUTH_TOKEN_INVALID' || errorCode === 'AUTH_LOGIN_FAILED') return 401;
       return 400;
     case 'LOC':
       return 400;

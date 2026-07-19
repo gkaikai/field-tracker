@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +15,7 @@ class LocationService {
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   Timer? _uploadTimer;
+  int _currentInterval = AppConfig.locationIntervalSeconds;
   bool _isRunning = false;
 
   // 回调
@@ -51,7 +51,7 @@ class LocationService {
       onError?.call('获取位置失败: $e');
     }
 
-    // 持续监听位置变化
+    // 持续监听位置变化（距离5米变化即触发）
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -69,7 +69,7 @@ class LocationService {
 
     // 定时上报位置
     _uploadTimer = Timer.periodic(
-      Duration(seconds: AppConfig.locationIntervalSeconds),
+      Duration(seconds: _currentInterval),
       (_) => _uploadPosition(),
     );
 
@@ -86,7 +86,7 @@ class LocationService {
     _isRunning = false;
   }
 
-  /// 上报位置到服务器
+  /// 上报位置到服务器，并根据速度自适应调整频率（省电模式）
   Future<void> _uploadPosition() async {
     if (_currentPosition == null) return;
 
@@ -98,54 +98,43 @@ class LocationService {
         'speed': _currentPosition!.speed,
         'timestamp': _currentPosition!.timestamp.millisecondsSinceEpoch,
       });
+
+      // 省电模式：根据速度调整上报频率
+      if (AppConfig.powerSaveStationaryInterval > 0) {
+        final speed = _currentPosition!.speed; // m/s
+        final isMoving = speed > AppConfig.powerSaveSpeedThreshold / 3.6;
+        final newInterval = isMoving
+            ? AppConfig.powerSaveMovingInterval
+            : AppConfig.powerSaveStationaryInterval;
+
+        if (_uploadTimer != null && _currentInterval != newInterval) {
+          _uploadTimer?.cancel();
+          _currentInterval = newInterval;
+          _uploadTimer = Timer.periodic(
+            Duration(seconds: newInterval),
+            (_) => _uploadPosition(),
+          );
+        }
+      }
     } catch (e) {
       // 网络失败静默处理（下次重试）
+    }
+
+    // 上报成功后自动检测围栏进出
+    try {
+      await _api.post('/api/v1/fences/auto-check', data: {
+        'lat': _currentPosition!.latitude,
+        'lng': _currentPosition!.longitude,
+      });
+    } catch (_) {
+      // 围栏检测失败不阻塞定位
     }
   }
 }
 
-/// 后台定位保活服务
-/// 创建前台服务避免iOS/Android系统杀死定位进程
+/// 后台定位保活 - 鸿蒙兼容占位
 void startBackgroundService() {
-  final service = FlutterBackgroundService();
-
-  service.configure(
-    iosConfiguration: IosConfiguration(
-      autoStart: false,
-      onForeground: (service) {
-        service.invoke('startService', {'action': 'started'});
-      },
-      onBackground: (service) async {
-        WidgetsFlutterBinding.ensureInitialized();
-        return true;
-      },
-    ),
-    androidConfiguration: AndroidConfiguration(
-      autoStart: false,
-      isForegroundMode: true,
-      autoStartOnBoot: false,
-      notificationChannelId: AppConfig.notificationChannelId,
-      initialNotificationTitle: '外勤定位',
-      initialNotificationContent: '正在后台追踪位置...',
-      foregroundServiceNotificationId: 888,
-      onStart: (service) {
-        (service as AndroidServiceInstance).setForegroundNotificationInfo(
-          title: '外勤定位',
-          content: '正在后台追踪位置...',
-        );
-
-        service.on('startService').listen((event) {
-          service.invoke('startService', {'action': 'started'});
-        });
-
-        service.on('stopService').listen((event) {
-          service.invoke('stopService', {'action': 'stopped'});
-        });
-      },
-    ),
-  );
-
-  service.startService();
+  // 已禁用：flutter_background_service 不兼容鸿蒙
 }
 
 /// WorkManager后台周期性任务
@@ -156,7 +145,6 @@ void callbackDispatcher() {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token');
       if (token == null) return false;
-
       try {
         final position = await Geolocator.getLastKnownPosition();
         if (position != null) {
@@ -165,9 +153,6 @@ void callbackDispatcher() {
           await api.post(AppConfig.apiReportLocation, data: {
             'lng': position.longitude,
             'lat': position.latitude,
-            'accuracy': position.accuracy,
-            'speed': position.speed,
-            'timestamp': position.timestamp.millisecondsSinceEpoch,
           });
         }
       } catch (_) {}
@@ -186,6 +171,7 @@ void registerPeriodicLocationTask() {
     constraints: Constraints(
       networkType: NetworkType.connected,
     ),
+    existingWorkPolicy: ExistingWorkPolicy.keep,
     backoffPolicy: BackoffPolicy.linear,
     backoffPolicyDelay: Duration(minutes: 1),
   );

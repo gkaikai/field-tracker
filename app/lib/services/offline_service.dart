@@ -1,0 +1,97 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:dio/dio.dart';
+import '../config/app_config.dart';
+import '../services/auth_service.dart';
+
+/// 离线模式服务 - 本地缓存定位数据，网络恢复后自动同步
+class OfflineService {
+  static final OfflineService _instance = OfflineService._internal();
+  factory OfflineService() => _instance;
+  OfflineService._internal();
+
+  final _auth = AuthService();
+  static const _cacheKey = 'offline_location_cache';
+  static const _pendingCheckinKey = 'offline_checkin_cache';
+
+  /// 缓存一条位置记录（无网络时调用）
+  Future<void> cacheLocation(double lng, double lat, double speed) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cache = prefs.getString(_cacheKey);
+    final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+    list.add({
+      'lng': lng, 'lat': lat, 'speed': speed,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+    // 最多保留500条
+    while (list.length > 500) list.removeAt(0);
+    await prefs.setString(_cacheKey, json.encode(list));
+  }
+
+  /// 缓存一次打卡（无网络时调用）
+  Future<void> cacheCheckin(String type, double lng, double lat) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cache = prefs.getString(_pendingCheckinKey);
+    final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+    list.add({ 'type': type, 'lng': lng, 'lat': lat, 'timestamp': DateTime.now().toIso8601String() });
+    await prefs.setString(_pendingCheckinKey, json.encode(list));
+  }
+
+  /// 尝试同步离线数据
+  Future<int> syncAll() async {
+    int synced = 0;
+    final token = _auth.token;
+    if (token == null) return 0;
+
+    final prefs = await SharedPreferences.getInstance();
+    final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
+    final options = Options(headers: {'Authorization': 'Bearer $token'});
+
+    // 同步定位数据
+    final locCache = prefs.getString(_cacheKey);
+    if (locCache != null) {
+      final list = (json.decode(locCache) as List).cast<Map<String, dynamic>>();
+      for (final item in list) {
+        try {
+          await dio.post('/api/v1/location/report', data: item, options: options);
+          synced++;
+        } catch (_) { break; } // 网络仍然不可用就停止
+      }
+      if (synced > 0) await prefs.remove(_cacheKey);
+    }
+
+    // 同步打卡数据
+    final checkinCache = prefs.getString(_pendingCheckinKey);
+    if (checkinCache != null) {
+      final list = (json.decode(checkinCache) as List).cast<Map<String, dynamic>>();
+      int checkinSynced = 0;
+      for (final item in list) {
+        try {
+          await dio.post('/api/v1/attendance/checkin', data: item, options: options);
+          checkinSynced++;
+        } catch (_) { break; }
+      }
+      if (checkinSynced > 0) await prefs.remove(_pendingCheckinKey);
+      synced += checkinSynced;
+    }
+
+    return synced;
+  }
+
+  /// 检查是否有离线缓存
+  Future<bool> hasOfflineData() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.containsKey(_cacheKey) || prefs.containsKey(_pendingCheckinKey);
+  }
+
+  /// 获取离线缓存条数
+  Future<int> offlineCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final loc = prefs.getString(_cacheKey);
+    final chk = prefs.getString(_pendingCheckinKey);
+    int count = 0;
+    if (loc != null) count += (json.decode(loc) as List).length;
+    if (chk != null) count += (json.decode(chk) as List).length;
+    return count;
+  }
+}

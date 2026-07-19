@@ -4,6 +4,16 @@ import '../services/auth_service.dart';
 import 'map_page.dart';
 import 'attendance_page.dart';
 import 'track_replay_page.dart';
+import 'watermark_camera_page.dart';
+import 'customer_page.dart';
+import 'report_page.dart';
+import 'fence_page.dart';
+import 'profile_page.dart';
+import 'attendance_rules_page.dart';
+import 'approval_page.dart';
+import 'stats_page.dart';
+import 'photo_gallery_page.dart';
+import 'visit_plan_page.dart';
 
 /// 首页 - 功能导航
 class HomePage extends StatefulWidget {
@@ -15,11 +25,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final AuthService _auth = AuthService();
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +80,7 @@ class _HomePageState extends State<HomePage> {
 
             const SizedBox(height: 20),
 
-            // 功能入口网格
+            // 功能入口网格（2列）
             Expanded(
               child: GridView.count(
                 crossAxisCount: 2,
@@ -83,34 +88,34 @@ class _HomePageState extends State<HomePage> {
                 crossAxisSpacing: 12,
                 childAspectRatio: 1.3,
                 children: [
-                  _buildFeatureCard(
-                    icon: Icons.map,
-                    title: '实时地图',
-                    subtitle: '定位 & 打卡',
-                    color: Colors.blue,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MapPage())),
-                  ),
-                  _buildFeatureCard(
-                    icon: Icons.fingerprint,
-                    title: '打卡记录',
-                    subtitle: '查看签到历史',
-                    color: Colors.green,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendancePage())),
-                  ),
-                  _buildFeatureCard(
-                    icon: Icons.route,
-                    title: '轨迹回放',
-                    subtitle: '查看运动路线',
-                    color: Colors.orange,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrackReplayPage())),
-                  ),
-                  _buildFeatureCard(
-                    icon: Icons.settings,
-                    title: '权限设置',
-                    subtitle: '定位权限引导',
-                    color: Colors.grey,
-                    onTap: () => Navigator.pushNamed(context, '/permission'),
-                  ),
+                  _card(Icons.map, '实时地图', '定位 & 打卡', Colors.blue,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MapPage()))),
+                  _card(Icons.fingerprint, '打卡记录', '查看签到历史', Colors.green,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendancePage()))),
+                  _card(Icons.route, '轨迹回放', '查看运动路线', Colors.orange,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrackReplayPage()))),
+                  _card(Icons.camera_alt, '拍照水印', '打卡拍照带水印', Colors.purple,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WatermarkCameraPage()))),
+                  _card(Icons.photo_library, '照片列表', '查看已拍照片', Colors.pink,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PhotoGalleryPage()))),
+                  _card(Icons.fence, '电子围栏', '围栏管理', Colors.indigo,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FencePage()))),
+                  _card(Icons.assignment, '工作汇报', '日报/周报', Colors.teal,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportPage()))),
+                  _card(Icons.people, '客户管理', '客户资料/拜访', Colors.deepOrange,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerPage()))),
+                  _card(Icons.checklist, '打卡规则', '考勤配置', Colors.brown,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceRulesPage()))),
+                  _card(Icons.approval, '审批', '请假/出差', Colors.red,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ApprovalPage()))),
+                  _card(Icons.bar_chart, '数据统计', '报表/里程', Colors.cyan,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsPage()))),
+                  _card(Icons.person, '个人设置', '密码/信息', Colors.grey,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage()))),
+                  _card(Icons.calendar_today, '拜访计划', '计划/路线', Colors.amber,
+                    () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VisitPlanPage()))),
+                  _card(Icons.settings, '权限设置', '定位权限引导', Colors.blueGrey,
+                    () => Navigator.pushNamed(context, '/permission')),
                 ],
               ),
             ),
@@ -120,13 +125,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildFeatureCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _card(IconData icon, String title, String subtitle, Color color, VoidCallback onTap) {
     return Card(
       elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

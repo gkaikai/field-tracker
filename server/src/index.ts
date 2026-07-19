@@ -5,15 +5,35 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'http';
+import path from 'path';
 import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
 import { testConnection, pgPool, redis } from './config/database';
 import { setupLocationWS } from './websocket/location_ws';
 import { errorHandler } from './middleware/errorHandler';
 import { logger, requestLogger } from './config/logger';
+import { initAlert } from './monitoring/alert';
+import { recordRequest, completeRequest, startMetricsSummary, checkDiskUsage } from './monitoring/metrics';
 
-// 加载环境变量
-dotenv.config();
+// ============================================================
+// 环境配置加载
+// 根据 NODE_ENV 加载对应的 .env 文件:
+//   development -> .env.development
+//   production  -> .env.production
+//   未设置      -> .env (兼容旧逻辑)
+// ============================================================
+const envFile = process.env.NODE_ENV === 'production'
+  ? '.env.production'
+  : process.env.NODE_ENV === 'development'
+    ? '.env.development'
+    : '.env';
+
+const envPath = path.resolve(__dirname, '../', envFile);
+dotenv.config({ path: envPath });
+logger.info(`加载环境配置: ${envFile} (NODE_ENV=${process.env.NODE_ENV || '未设置'})`);
+
+// 初始化告警通道（从环境变量读取 Webhook URL）
+initAlert();
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000');
@@ -29,6 +49,23 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(requestLogger);
+
+// 监控中间件 — 记录请求指标（在 requestLogger 之后）
+app.use((req: any, res: any, next: any) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    recordRequest({
+      path: req.originalUrl,
+      method: req.method,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+      timestamp: Date.now(),
+    });
+    completeRequest();
+  });
+  next();
+});
+
 app.use(express.static('public'));
 
 // ---- HTTP 路由 ----
@@ -37,16 +74,82 @@ import locationRoutes from './routes/location';
 import userRoutes from './routes/user';
 import attendanceRoutes from './routes/attendance';
 import fenceRoutes from './routes/fence';
+import uploadRoutes from './routes/upload';
+import reportRoutes from './routes/report';
+import customerRoutes from './routes/customer';
+import approvalRoutes from './routes/approval';
+import orgRoutes from './routes/org';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/attendance', attendanceRoutes);
 app.use('/api/v1/fences', fenceRoutes);
+app.use('/api/v1/upload', uploadRoutes);
+app.use('/api/v1/reports', reportRoutes);
+app.use('/api/v1/customers', customerRoutes);
+app.use('/api/v1/approvals', approvalRoutes);
+app.use('/api/v1/org', orgRoutes);
+
+// 提供静态文件服务（管理后台）
+app.use(express.static('public'));
+app.use('/uploads', express.static('uploads'));
+
+// 管理后台入口
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/admin.html'));
+});
+
+// APK下载（支持 Range 请求，兼容代理隧道分块下载）
+app.get('/apk', (req, res) => {
+  const apkPath = '/Users/openclaw-gkf/development/field_tracker/app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk';
+  const fs = require('fs');
+  const stat = fs.statSync(apkPath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + 400 * 1024, fileSize - 1); // 400KB chunks
+    const chunkSize = end - start + 1;
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Disposition': 'attachment; filename="field-tracker.apk"',
+      'Cache-Control': 'no-cache',
+    });
+
+    const stream = fs.createReadStream(apkPath, { start, end });
+    stream.pipe(res);
+  } else {
+    // 无Range请求时返回头200KB让浏览器可以发起Range请求
+    const firstChunk = Math.min(200 * 1024, fileSize);
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Length': fileSize,
+      'Content-Disposition': 'attachment; filename="field-tracker.apk"',
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache',
+    });
+
+    const stream = fs.createReadStream(apkPath, { highWaterMark: 64 * 1024 });
+    stream.pipe(res);
+  }
+});
 
 // 健康检查
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// 监控指标端点
+app.get('/metrics', (req: any, res: any) => {
+  const { getMetricsSnapshot } = require('./monitoring/metrics');
+  res.json(getMetricsSnapshot());
 });
 
 // ---- 全局异常处理（必须在路由之后） ----
@@ -78,7 +181,28 @@ async function start() {
 
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Field Tracker Server 启动成功 | HTTP: ${PORT} | WS: /ws/location`);
-    console.log(`\n╔══════════════════════════════════════════════╗\n║          Field Tracker Server                ║\n║──────────────────────────────────────────────║\n║  HTTP  : http://localhost:${PORT}              ║\n║  WS    : ws://localhost:${PORT}/ws/location    ║\n║  Health: http://localhost:${PORT}/health       ║\n╚══════════════════════════════════════════════╝\n    `);
+    console.log(`\n╔══════════════════════════════════════════════╗\n║          Field Tracker Server                ║\n║──────────────────────────────────────────────║\n║  HTTP  : http://localhost:${PORT}              ║\n║  WS    : ws://localhost:${PORT}/ws/location    ║\n║  Admin : http://localhost:${PORT}/admin        ║\n║  Health: http://localhost:${PORT}/health       ║\n║  Metrics: http://localhost:${PORT}/metrics     ║\n╚══════════════════════════════════════════════╝\n    `);
+
+    // 启动定期监控摘要输出（每30分钟）
+    startMetricsSummary();
+
+    // 首次检查磁盘使用率
+    checkDiskUsage();
+
+    // 每15分钟检查一次磁盘使用率
+    setInterval(() => checkDiskUsage(), 15 * 60 * 1000);
+
+    logger.info('监控告警系统已启动');
+  });
+
+  // 端口被占用时自动重试
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`端口 ${PORT} 已被占用，请先关闭旧进程或更换端口`);
+      console.error(`\n❌ 端口 ${PORT} 已被占用!`);
+      console.error(`   运行 lsof -ti:${PORT} | xargs kill 来释放端口\n`);
+      process.exit(1);
+    }
   });
 }
 

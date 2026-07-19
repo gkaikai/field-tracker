@@ -1,8 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { body, param, query } from 'express-validator';
-import { pgPool, redis } from '../config/database';
-import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
-import { AppError } from '../errors/AppError';
+import { body, query } from 'express-validator';
+import { authMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 
 const router = Router();
@@ -10,7 +8,50 @@ const router = Router();
 /** 所有 location 端点都需要登录 */
 router.use(authMiddleware);
 
-// 单点上报 — POST /api/v1/location/report
+// ============================================================
+//  内存存储（代替 Redis + PostgreSQL）
+// ============================================================
+
+interface TrackPoint {
+  lng: number;
+  lat: number;
+  accuracy: number;
+  speed: number;
+  timestamp: number; // epoch ms
+}
+
+interface UserTrack {
+  userId: string;
+  points: TrackPoint[];
+}
+
+/** 用户实时位置（key=userId） */
+const liveLocations = new Map<string, { lng: number; lat: number; accuracy: number; speed: number; timestamp: number; name: string }>();
+
+/** 历史轨迹（key=userId, 按时间排序） */
+const trackStore = new Map<string, TrackPoint[]>();
+
+function addTrackPoint(userId: string, pt: TrackPoint) {
+  let points = trackStore.get(userId);
+  if (!points) {
+    points = [];
+    trackStore.set(userId, points);
+  }
+  points.push(pt);
+  // 限制内存中最多保留 10000 个点
+  if (points.length > 10000) {
+    points.splice(0, points.length - 10000);
+  }
+}
+
+function getTrackPoints(userId: string, startMs: number, endMs: number): TrackPoint[] {
+  const points = trackStore.get(userId) || [];
+  return points.filter(p => p.timestamp >= startMs && p.timestamp <= endMs);
+}
+
+// ============================================================
+//  单点上报 — POST /api/v1/location/report
+// ============================================================
 router.post('/report',
   validate([
     body('lng')
@@ -20,42 +61,35 @@ router.post('/report',
       .exists().withMessage('纬度不能为空')
       .isFloat({ min: -85.05, max: 85.05 }).withMessage('纬度超出有效范围(-85~85)'),
   ]),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const user = (req as any).user as JwtPayload;
-      const { lng, lat, accuracy, speed, timestamp } = req.body;
+  async (req: Request, res: Response) => {
+    const user = (req as any).user as JwtPayload;
+    const { lng, lat, accuracy, speed, timestamp } = req.body;
+    const ts = timestamp || Date.now();
 
-      // 写入 Redis GEO（实时位置，TTL 5分钟）
-      const redisKey = `location:${user.userId}`;
-      await redis.geoadd('locations:live', lng, lat, user.userId);
-      await redis.expire('locations:live', 300);
-      await redis.hset(redisKey, {
-        lng: lng.toString(),
-        lat: lat.toString(),
-        accuracy: (accuracy || 0).toString(),
-        speed: (speed || 0).toString(),
-        timestamp: (timestamp || Date.now()).toString(),
-        userId: user.userId,
-        name: user.phone,
-      });
-      await redis.expire(redisKey, 300);
+    // 更新实时位置
+    liveLocations.set(user.userId, {
+      lng, lat,
+      accuracy: accuracy || 0,
+      speed: speed || 0,
+      timestamp: ts,
+      name: user.phone,
+    });
 
-      // 异步写入 PostgreSQL（历史轨迹）
-      const ts = timestamp ? new Date(timestamp) : new Date();
-      await pgPool.query(
-        `INSERT INTO location_records (user_id, lng, lat, accuracy, speed, recorded_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user.userId, lng, lat, accuracy || 0, speed || 0, ts],
-      );
+    // 写入历史轨迹
+    addTrackPoint(user.userId, {
+      lng, lat,
+      accuracy: accuracy || 0,
+      speed: speed || 0,
+      timestamp: ts,
+    });
 
-      res.json({ success: true });
-    } catch (err) {
-      next(err);
-    }
+    res.status(201).json({ success: true, points: (trackStore.get(user.userId) || []).length });
   },
 );
 
-// 批量上报 — POST /api/v1/location/batch
+// ============================================================
+//  批量上报 — POST /api/v1/location/batch
+// ============================================================
 router.post('/batch',
   validate([
     body('points')
@@ -64,153 +98,163 @@ router.post('/batch',
       .isFloat({ min: -180, max: 180 }).withMessage('存在无效经度'),
     body('points.*.lat')
       .isFloat({ min: -85.05, max: 85.05 }).withMessage('存在无效纬度'),
-    body('points')
-      .isArray({ max: 100 }).withMessage('单次批量上传不能超过100条'),
   ]),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const user = (req as any).user as JwtPayload;
-      const { points } = req.body;
-
-      const values: any[] = [];
-      const placeholders: string[] = [];
-      let idx = 1;
-
-      for (const p of points) {
-        placeholders.push(`($${idx}, $${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5})`);
-        values.push(
-          user.userId,
-          p.lng,
-          p.lat,
-          p.accuracy || 0,
-          p.speed || 0,
-          p.timestamp ? new Date(p.timestamp) : new Date(),
-        );
-        idx += 6;
-      }
-
-      await pgPool.query(
-        `INSERT INTO location_records (user_id, lng, lat, accuracy, speed, recorded_at) VALUES ${placeholders.join(',')}`,
-        values,
-      );
-
-      // 更新 Redis 实时位置（用最后一条）
-      const last = points[points.length - 1];
-      await redis.geoadd('locations:live', last.lng, last.lat, user.userId);
-      await redis.expire('locations:live', 300);
-
-      res.json({ success: true, count: points.length });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-// 获取某人实时位置 — 员工只能查自己，管理员/经理可查所有人
-router.get('/current/:userId', async (req: Request, res: Response, next: NextFunction) => {
-  try {
+  async (req: Request, res: Response) => {
     const user = (req as any).user as JwtPayload;
-    const targetUserId = req.params.userId;
+    const points = req.body.points as Array<{ lng: number; lat: number; accuracy?: number; speed?: number; timestamp?: number }>;
 
-    // 非管理员/经理只能查自己
-    if (user.role === 'employee' && targetUserId !== user.userId) {
-      throw new AppError('AUTH_FORBIDDEN');
-    }
-
-    const redisKey = `location:${targetUserId}`;
-    const exists = await redis.exists(redisKey);
-
-    if (!exists) {
-      return res.json({ online: false });
-    }
-
-    const data = await redis.hgetall(redisKey);
-    res.json({
-      online: true,
-      userId: targetUserId,
-      lng: parseFloat(data.lng),
-      lat: parseFloat(data.lat),
-      accuracy: parseFloat(data.accuracy || '0'),
-      speed: parseFloat(data.speed || '0'),
-      timestamp: parseInt(data.timestamp || '0', 10),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// 获取在线人员列表 — 仅管理员/经理可见
-router.get('/online',
-  roleMiddleware('manager', 'admin'),
-  async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    const results = await redis.geopos('locations:live', ...Array(100).fill(0).map((_, i) => `*`));
-    // 改用 scan 方式获取
-    const keys = await redis.keys('location:*');
-    const users: any[] = [];
-
-    for (const key of keys) {
-      const data = await redis.hgetall(key);
-      const userId = key.replace('location:', '');
-      users.push({
-        userId,
-        lng: parseFloat(data.lng),
-        lat: parseFloat(data.lat),
-        accuracy: parseFloat(data.accuracy || '0'),
-        speed: parseFloat(data.speed || '0'),
-        timestamp: parseInt(data.timestamp || '0', 10),
+    for (const pt of points) {
+      addTrackPoint(user.userId, {
+        lng: pt.lng,
+        lat: pt.lat,
+        accuracy: pt.accuracy || 0,
+        speed: pt.speed || 0,
+        timestamp: pt.timestamp || Date.now(),
       });
     }
 
-    res.json({ users, total: users.length });
-  } catch (err) {
-    next(err);
-  }
-});
+    // 更新实时位置（最后一点）
+    const last = points[points.length - 1];
+    liveLocations.set(user.userId, {
+      lng: last.lng,
+      lat: last.lat,
+      accuracy: last.accuracy || 0,
+      speed: last.speed || 0,
+      timestamp: last.timestamp || Date.now(),
+      name: user.phone,
+    });
 
-// 获取历史轨迹 — 员工只能查自己，管理员/经理可查所有人
+    res.json({ success: true, count: points.length });
+  },
+);
+
+// ============================================================
+//  获取所有在线人员实时位置 — GET /api/v1/location/batch
+// ============================================================
+router.get('/batch',
+  async (_req: Request, res: Response) => {
+    const now = Date.now();
+    const users: any[] = [];
+    for (const [userId, loc] of liveLocations.entries()) {
+      // 5分钟内算在线
+      if (now - loc.timestamp < 5 * 60 * 1000) {
+        users.push({
+          userId,
+          name: loc.name,
+          lng: loc.lng,
+          lat: loc.lat,
+          accuracy: loc.accuracy,
+          speed: loc.speed,
+          timestamp: loc.timestamp,
+        });
+      }
+    }
+    res.json({ users, total: users.length });
+  },
+);
+
+// ============================================================
+//  获取历史轨迹 — GET /api/v1/location/track/:userId
+// ============================================================
 router.get('/track/:userId',
   validate([
     query('date')
       .optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('日期格式无效(YYYY-MM-DD)'),
   ]),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const user = (req as any).user as JwtPayload;
-      const targetUserId = req.params.userId;
+  async (req: Request, res: Response) => {
+    const user = (req as any).user as JwtPayload;
+    const targetUserId = req.params.userId;
 
-      // 非管理员/经理只能查自己
-      if (user.role === 'employee' && targetUserId !== user.userId) {
-        throw new AppError('AUTH_FORBIDDEN');
-      }
-      const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
-      const startOfDay = new Date(`${date}T00:00:00+08:00`);
-      const endOfDay = new Date(`${date}T23:59:59.999+08:00`);
-
-      const result = await pgPool.query(
-        `SELECT lng, lat, accuracy, speed, recorded_at
-         FROM location_records
-         WHERE user_id = $1 AND recorded_at >= $2 AND recorded_at <= $3
-         ORDER BY recorded_at ASC`,
-        [targetUserId, startOfDay, endOfDay],
-      );
-
-      res.json({
-        userId: targetUserId,
-        date,
-        points: result.rows.map((r: any) => ({
-          lng: parseFloat(r.lng),
-          lat: parseFloat(r.lat),
-          accuracy: r.accuracy,
-          speed: r.speed,
-          timestamp: new Date(r.recorded_at).getTime(),
-        })),
-      });
-    } catch (err) {
-      next(err);
+    // 非管理员/经理只能查自己
+    if (user.role === 'employee' && targetUserId !== user.userId) {
+      return res.status(403).json({ code: '10009', message: '无权限访问' });
     }
+
+    const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+    const startMs = new Date(`${date}T00:00:00+08:00`).getTime();
+    const endMs = new Date(`${date}T23:59:59.999+08:00`).getTime();
+
+    // 从内存读取
+    const points = getTrackPoints(targetUserId, startMs, endMs);
+
+    // 同时从打卡内存中获取位置
+    let checkInPoints: TrackPoint[] = [];
+    try {
+      const { getMemAttendanceRecords } = require('./attendance');
+      const memRecords = getMemAttendanceRecords(targetUserId);
+      checkInPoints = memRecords
+        .filter((r: any) => {
+          const t = new Date(r.check_time).getTime();
+          return t >= startMs && t <= endMs;
+        })
+        .map((r: any) => ({
+          lng: r.lng,
+          lat: r.lat,
+          accuracy: 0,
+          speed: 0,
+          timestamp: new Date(r.check_time).getTime(),
+        }));
+    } catch (_e) {
+      // ignore
+    }
+
+    // 合并去重 + 按时间排序
+    const all = [...points, ...checkInPoints];
+    all.sort((a, b) => a.timestamp - b.timestamp);
+
+    res.json({
+      userId: targetUserId,
+      date,
+      points: all,
+    });
+  },
+);
+
+// ============================================================
+//  获取当前登录用户实时位置 — GET /api/v1/location/current
+// ============================================================
+router.get('/current',
+  async (req: Request, res: Response) => {
+    const user = (req as any).user as JwtPayload;
+    const loc = liveLocations.get(user.userId);
+    if (!loc) {
+      return res.status(404).json({ code: '10014', message: '暂无位置信息' });
+    }
+    res.json({ userId: user.userId, ...loc });
+  },
+);
+
+// ============================================================
+//  获取指定用户实时位置 — GET /api/v1/location/current/:userId
+// ============================================================
+router.get('/current/:userId',
+  async (req: Request, res: Response) => {
+    const loc = liveLocations.get(req.params.userId);
+    if (!loc) {
+      return res.status(404).json({ code: '10014', message: '暂无位置信息' });
+    }
+    res.json({
+      userId: req.params.userId,
+      ...loc,
+    });
   },
 );
 
 export default router;
+
+// ============================================================
+//  逆地理编码 — GET /api/v1/location/reverse-geocode
+// ============================================================
+router.get('/reverse-geocode',
+  async (req: Request, res: Response) => {
+    const lat = req.query.lat as string;
+    const lng = req.query.lng as string;
+    // 简单返回坐标地址，后续可接高德逆地理API
+    res.json({
+      address: `${lat}, ${lng}`,
+      lat: parseFloat(lat || '0'),
+      lng: parseFloat(lng || '0'),
+    });
+  },
+);

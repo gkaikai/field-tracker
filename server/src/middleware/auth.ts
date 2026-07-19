@@ -27,7 +27,7 @@ export function generateToken(payload: JwtPayload): string {
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new AppError('AUTH_TOKEN_MISSING');
+    return next(new AppError('AUTH_TOKEN_MISSING'));
   }
 
   const token = authHeader.slice(7);
@@ -36,7 +36,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     (req as any).user = decoded;
     next();
   } catch (err) {
-    throw new AppError('AUTH_TOKEN_INVALID');
+    return next(new AppError('AUTH_TOKEN_INVALID'));
   }
 }
 
@@ -45,7 +45,7 @@ export function roleMiddleware(...allowedRoles: string[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const user = (req as any).user as JwtPayload;
     if (!allowedRoles.includes(user.role)) {
-      throw new AppError('AUTH_FORBIDDEN');
+      return next(new AppError('AUTH_FORBIDDEN'));
     }
     next();
   };

@@ -12,6 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.6
   # 高德地图
   amap_flutter_map: ^3.0.0
+  amap_flutter_base: ^3.0.0
   amap_flutter_location: ^3.0.0
   # 定位
   geolocator: ^11.0.0
@@ -31,9 +32,16 @@ dependencies:
   fluttertoast: ^8.2.0
   flutter_background_service: ^5.1.0
   device_info_plus: ^10.0.0
+  camera: ^0.10.6
+  image: ^4.8.0
+  path_provider: ^2.1.5
+  share_plus: ^10.1.4
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   mockito: ^5.4.4

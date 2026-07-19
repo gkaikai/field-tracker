@@ -32,12 +32,18 @@ server/node_modules/
 # Environment
 .env
 .env.local
+.env.development
+.env.production
 
 # Database
 *.db
 *.sqlite
+pgdata/
 
 # Logs
 *.log
-**/build/
-ios/build/
+logs/
+**/logs/
+
+# Build artifacts
+**/dist/

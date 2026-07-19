@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import '../services/auth_service.dart';
+import '../services/error_codes.dart';
 
 /// 登录页面
 class LoginPage extends StatefulWidget {
@@ -12,7 +13,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController(text: 'zhangsan');
+  final _usernameController = TextEditingController(text: '13800138000');
   final _passwordController = TextEditingController(text: 'test123456');
   final _authService = AuthService();
   bool _loading = false;
@@ -37,9 +38,13 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
+    } on ApiException catch (e) {
+      // 业务错误码由 ApiService 拦截器统一弹出 Toast，此处仅兜底日志
+      debugPrint('Login business error [${e.code}]: ${e.friendlyMessage}');
     } catch (e) {
+      // 极端兜底：拦截器未捕获到的异常
       Fluttertoast.showToast(
-        msg: '登录失败: ${e.toString()}',
+        msg: '登录失败，请稍后重试',
         backgroundColor: Colors.red,
       );
     } finally {
@@ -78,8 +83,14 @@ class _LoginPageState extends State<LoginPage> {
                       prefixIcon: Icon(Icons.phone_android),
                       border: OutlineInputBorder(),
                     ),
-                    validator: (v) =>
-                        v == null || v.isEmpty ? '请输入手机号' : null,
+                    keyboardType: TextInputType.phone,
+                    maxLength: 11,
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return '请输入手机号';
+                      if (!RegExp(r'^\d{11}$').hasMatch(v)) return '手机号必须是11位数字';
+                      if (!RegExp(r'^1\d{10}$').hasMatch(v)) return '手机号必须以1开头';
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 16),
                   TextFormField(

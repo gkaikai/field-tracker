@@ -1,5 +1,12 @@
 node_modules/
 dist/
 .env
+.env.development
+.env.production
 *.log
 .DS_Store
+
+# PM2
+logs/
+.pm2/
+ecosystem.config.js

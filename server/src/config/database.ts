@@ -1,8 +1,7 @@
 import { Pool } from 'pg';
 import Redis from 'ioredis';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// 环境变量由入口文件 src/index.ts 根据 NODE_ENV 加载对应的 .env 文件
+// 此文件不再调用 dotenv.config()，避免干扰入口文件的加载顺序
 
 // PostgreSQL 连接池
 export const pgPool = new Pool({
@@ -20,22 +19,22 @@ pgPool.on('error', (err) => {
   console.error('PostgreSQL 连接异常:', err.message);
 });
 
-// Redis 客户端
-export const redis = new Redis({
+// Redis 客户端（可选，连接失败不阻塞启动）
+const redisOpts = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
+  retryStrategy: (times: number) => {
+    if (times > 3) return null; // 3次重试后放弃，不再自动重连
+    return Math.min(times * 200, 2000);
   },
-});
+  maxRetriesPerRequest: 3,
+  lazyConnect: true, // 不自动连接
+};
+export const redis = new Redis(redisOpts);
 
-redis.on('connect', () => {
-  console.log('Redis 已连接');
-});
-
-redis.on('error', (err) => {
-  console.error('Redis 错误:', err.message);
+// 静默连接，不输出错误日志（Redis不可用时降级运行）
+redis.connect().catch(() => {
+  // Redis不可用 → 降级运行（不输出"Redis错误"到终端）
 });
 
 // 测试数据库连接
