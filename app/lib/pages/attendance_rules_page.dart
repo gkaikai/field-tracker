@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../services/auth_service.dart';
+import '../services/location_service.dart';
 
 class AttendanceRulesPage extends StatefulWidget {
   const AttendanceRulesPage({super.key});
@@ -32,10 +33,12 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
     final startCtrl = TextEditingController(text: '09:00');
     final endCtrl = TextEditingController(text: '18:00');
     final radiusCtrl = TextEditingController(text: '300');
+    final latCtrl = TextEditingController();
+    final lngCtrl = TextEditingController();
 
     showDialog(context: context, builder: (ctx) => AlertDialog(
       title: const Text('新建打卡规则'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '规则名称', border: OutlineInputBorder())),
         const SizedBox(height: 8),
         TextField(controller: startCtrl, decoration: const InputDecoration(labelText: '上班时间', border: OutlineInputBorder())),
@@ -43,16 +46,40 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
         TextField(controller: endCtrl, decoration: const InputDecoration(labelText: '下班时间', border: OutlineInputBorder())),
         const SizedBox(height: 8),
         TextField(controller: radiusCtrl, decoration: const InputDecoration(labelText: '有效半径(米)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
-      ]),
+        const SizedBox(height: 8),
+        TextField(controller: latCtrl, decoration: const InputDecoration(labelText: '中心纬度(可在地图页查看)', border: OutlineInputBorder()), keyboardType: TextInputType.numberWithOptions(decimal: true)),
+        const SizedBox(height: 8),
+        TextField(controller: lngCtrl, decoration: const InputDecoration(labelText: '中心经度(可在地图页查看)', border: OutlineInputBorder()), keyboardType: TextInputType.numberWithOptions(decimal: true)),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: () {
+            final loc = LocationService();
+            final lat = loc.currentLat;
+            final lng = loc.currentLng;
+            if (lat != null && lng != null) {
+              latCtrl.text = lat.toStringAsFixed(6);
+              lngCtrl.text = lng.toStringAsFixed(6);
+            } else {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(content: Text('尚未获取到位置，请在地图页等待定位'), backgroundColor: Colors.orange));
+            }
+          },
+          icon: const Icon(Icons.my_location, size: 16),
+          label: const Text('使用当前位置'),
+        ),
+      ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
           if (nameCtrl.text.isEmpty) return;
+          final lat = double.tryParse(latCtrl.text);
+          final lng = double.tryParse(lngCtrl.text);
           try {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             await dio.post('/api/v1/attendance/rules', data: {
               'name': nameCtrl.text, 'startTime': startCtrl.text, 'endTime': endCtrl.text,
               'radius': int.tryParse(radiusCtrl.text) ?? 300,
+              'centerLat': lat, 'centerLng': lng,
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             Navigator.pop(ctx); _load();
           } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('创建失败: $e'))); }
