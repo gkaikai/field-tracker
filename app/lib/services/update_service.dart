@@ -234,7 +234,7 @@ class UpdateService {
     }
   }
 
-  /// 下载APK并安装
+  /// 下载APK并安装（含进度条）
   static Future<void> _startDownload(
     BuildContext context,
     UpdateInfo info,
@@ -247,6 +247,10 @@ class UpdateService {
     }
 
     _isDownloading = true;
+    double progress = 0;
+    int downloadedBytes = 0;
+    int totalBytes = 0;
+    final progressNotifier = ValueNotifier<double>(0);
 
     try {
       // 申请安装权限 (Android 8+)
@@ -257,57 +261,78 @@ class UpdateService {
         }
       }
 
-      // 显示进度对话框
+      // 显示进度对话框（可更新）
       if (!context.mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('正在下载更新...'),
-                    const SizedBox(height: 4),
-                    Text(
-                      info.version,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('正在下载更新...',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(info.version,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  ValueListenableBuilder<double>(
+                    valueListenable: progressNotifier,
+                    builder: (ctx, p, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LinearProgressIndicator(value: p > 0 ? p : null),
+                        const SizedBox(height: 8),
+                        Text(
+                          p > 0
+                              ? '${(p * 100).toStringAsFixed(0)}%'
+                              : '准备中...',
+                          style: const TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
       );
 
       // 下载APK - 优先用国内加速，失败则用GitHub直链
-      http.Response? response;
       final urls = [
         if (info.fastDownloadUrl != null) info.fastDownloadUrl!,
         info.downloadUrl,
       ];
 
+      http.Response? response;
       for (int i = 0; i < urls.length; i++) {
         try {
-          response = await http.get(Uri.parse(urls[i]))
+          // 带进度追踪的下载
+          final client = http.Client();
+          final request = http.Request('GET', Uri.parse(urls[i]));
+          final streamedResp = await client.send(request)
               .timeout(const Duration(minutes: 5));
+
+          totalBytes = streamedResp.contentLength ?? 0;
+          final bytes = <int>[];
+          await for (final chunk in streamedResp.stream) {
+            bytes.addAll(chunk);
+            downloadedBytes += chunk.length;
+            if (totalBytes > 0) {
+              progress = downloadedBytes / totalBytes;
+              progressNotifier.value = progress;
+            }
+          }
+          response = http.Response.bytes(bytes, streamedResp.statusCode,
+              headers: streamedResp.headers);
+          client.close();
+
           if (response.statusCode == 200) break;
         } catch (_) {
           if (i < urls.length - 1) {
-            // 切换到下一个源
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -316,7 +341,6 @@ class UpdateService {
               ),
             );
           } else {
-            // 所有源都失败
             if (!context.mounted) return;
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -325,6 +349,7 @@ class UpdateService {
                 backgroundColor: Colors.red,
               ),
             );
+            _isDownloading = false;
             return;
           }
         }
