@@ -37,20 +37,38 @@ jobs:
 
       - name: 修复插件AGP 8.x兼容性
         run: |
-          # amap_flutter_location 缺少 namespace，AGP 8.7+ 要求显式声明
-          for f in $(find ~/.pub-cache/hosted/pub.dev/amap_flutter_location-* -name "build.gradle" -path "*/android/build.gradle"); do
-            if ! grep -q "namespace" "$f" 2>/dev/null; then
-              sed -i 's/compileSdkVersion 29/namespace "com.amap.flutter.location"\n    compileSdk 34/' "$f"
-              echo "✅ 已修复: $f"
-            fi
-          done
-          for f in $(find ~/.pub-cache/hosted/pub.dev/amap_flutter_map-* -name "build.gradle" -path "*/android/build.gradle"); do
-            if ! grep -q "namespace" "$f" 2>/dev/null; then
-              sed -i 's/compileSdkVersion 29/namespace "com.amap.flutter.amap_flutter_map"\n    compileSdk 34/' "$f"
-              echo "✅ 已修复: $f"
-            fi
-          done
-          echo "✅ 插件兼容性修复完成"
+          python3 << 'PYEOF'
+          import glob, os, re
+
+          # 只修复高德地图SDK的build.gradle
+          for f in glob.glob(
+              os.path.expanduser("~") + "/.pub-cache/hosted/pub.dev/amap_flutter_*/android/build.gradle"
+          ):
+              with open(f) as fh:
+                  content = fh.read()
+
+              if "com.android.library" not in content:
+                  continue
+              if "namespace" in content:
+                  continue
+
+              # 提取group作为namespace
+              m = re.search(r"group\s+'([^']+)'", content)
+              ns = m.group(1).replace("-",".") if m else "com.amap.flutter"
+
+              # 添加namespace和compileSdk
+              content = content.replace(
+                  "android {",
+                  'android {\n    namespace "' + ns + '"\n    compileSdk 34'
+              )
+              content = re.sub(r'\n\s*compileSdkVersion\s+\d+', '', content)
+
+              with open(f, "w") as fh:
+                  fh.write(content)
+              print(f"✅ 修复: {f}")
+
+          print("✅ 兼容性修复完成")
+          PYEOF
 
       - name: 构建 Release APK
         run: flutter build apk --release
