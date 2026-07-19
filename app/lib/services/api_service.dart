@@ -125,6 +125,14 @@ class ApiService {
 
   /// 将网络/HTTP异常转译为可读的中文提示，不暴露技术细节
   static String _httpErrorMessage(DioException e) {
+    // 先看响应体中是否有友好的业务错误信息
+    final resp = e.response;
+    if (resp?.data is Map<String, dynamic>) {
+      final data = resp!.data as Map<String, dynamic>;
+      final msg = data['message'] as String?;
+      if (msg != null && msg.isNotEmpty) return msg;
+    }
+
     return switch (e.type) {
       DioExceptionType.connectionTimeout => '连接超时，请检查网络',
       DioExceptionType.sendTimeout => '请求发送超时，请稍后重试',

@@ -85,7 +85,7 @@ router.post('/checkin',
             rule.center_lat, rule.center_lng,
           );
           if (distance > (rule.radius_meters || 300)) {
-            throw new AppError('LOC_LAT_INVALID');  // 复用位置错误码，实际是"不在打卡范围内"
+            throw new AppError('ATTEND_OUT_OF_RANGE');  // 不在打卡范围内
           }
         }
 

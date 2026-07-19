@@ -42,6 +42,10 @@ export const ErrorCodes = {
   /** 日期参数无效 */
   LOC_DATE_INVALID: { code: '20006', message: '日期参数无效(格式: YYYY-MM-DD)' },
 
+  // ===== Attendance 模块 =====
+  /** 不在打卡范围内 */
+  ATTEND_OUT_OF_RANGE: { code: '40001', message: '不在打卡范围内' },
+
   // ===== Common 模块 =====
   /** 服务器内部错误 */
   INTERNAL_ERROR: { code: '50000', message: '服务器内部错误' },
@@ -60,6 +64,8 @@ export function getHttpStatus(errorCode: ErrorCode): number {
       if (errorCode === 'AUTH_TOKEN_MISSING' || errorCode === 'AUTH_TOKEN_INVALID' || errorCode === 'AUTH_LOGIN_FAILED') return 401;
       return 400;
     case 'LOC':
+      return 400;
+    case 'ATTEND':
       return 400;
     default:
       return 500;
