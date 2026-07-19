@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../services/location_service.dart';
 import '../services/auth_service.dart';
 import 'map_page.dart';
@@ -25,6 +26,20 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final AuthService _auth = AuthService();
+  String _appVersion = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _appVersion = pkg.version);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,6 +135,16 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        height: 24,
+        color: Colors.grey[50],
+        child: Center(
+          child: Text(
+            _appVersion.isNotEmpty ? 'v$_appVersion' : '',
+            style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+          ),
         ),
       ),
     );

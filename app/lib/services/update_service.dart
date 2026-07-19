@@ -66,13 +66,12 @@ class UpdateService {
   static const String _apiUrl =
       'https://api.github.com/repos/$_githubOwner/$_githubRepo/releases/latest';
 
-  static PackageInfo? _packageInfo;
   static bool _isDownloading = false;
 
-  /// 获取当前APP版本号
+  /// 获取当前APP版本号（每次重新获取，安装新版后立即生效）
   static Future<String> getCurrentVersion() async {
-    _packageInfo ??= await PackageInfo.fromPlatform();
-    return _packageInfo!.version;
+    final info = await PackageInfo.fromPlatform();
+    return info.version;
   }
 
   /// 版本号比较 (语义化版本比较)
