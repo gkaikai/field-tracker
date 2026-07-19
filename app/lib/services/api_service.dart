@@ -36,7 +36,9 @@ class ApiService {
         // 后端约定：成功响应 code=200，业务异常响应 code=10001~10014
         final data = response.data;
         if (data is Map<String, dynamic>) {
-          final int? bizCode = data['code'] as int?;
+          // 兼容后端返回的 code 字段可能为 String 或 int
+          final codeVal = data['code'];
+          final int? bizCode = (codeVal is int) ? codeVal : int.tryParse('$codeVal');
           if (bizCode != null && bizCode != 200 && ErrorCode.isBusinessError(bizCode)) {
             final msg = ErrorCode.message(bizCode);
 
@@ -66,7 +68,9 @@ class ApiService {
         final resp = error.response;
         if (resp?.data is Map<String, dynamic>) {
           final data = resp!.data as Map<String, dynamic>;
-          final int? bizCode = data['code'] as int?;
+          // 兼容后端返回的 code 字段可能为 String 或 int
+          final codeVal = data['code'];
+          final int? bizCode = (codeVal is int) ? codeVal : int.tryParse('$codeVal');
           if (bizCode != null && ErrorCode.isBusinessError(bizCode)) {
             final msg = ErrorCode.message(bizCode);
 
