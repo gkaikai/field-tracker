@@ -26,8 +26,11 @@ class UpdateInfo {
   /// 最新版本号 (如 "1.0.1")
   final String version;
 
-  /// 下载地址
+  /// GitHub下载地址
   final String downloadUrl;
+
+  /// 国内加速下载地址（如 gofile.io）
+  final String? fastDownloadUrl;
 
   /// 更新日志
   final String changelog;
@@ -38,7 +41,8 @@ class UpdateInfo {
   UpdateInfo({
     required this.version,
     required this.downloadUrl,
-    required this.changelog,
+    this.fastDownloadUrl,
+    this.changelog = '',
     this.forceUpdate = false,
   });
 
@@ -118,6 +122,13 @@ class UpdateService {
       // 获取更新日志 (body)
       final body = data['body'] as String? ?? '';
 
+      // 尝试从body中提取加速下载链接（如 `快速下载: https://gofile.io/d/xxx`）
+      String? fastDownloadUrl;
+      final urlMatch = RegExp(r'快速下载:\s*(https?://\S+)').firstMatch(body);
+      if (urlMatch != null) {
+        fastDownloadUrl = urlMatch.group(1);
+      }
+
       // 获取第一个APK附件的下载地址
       String downloadUrl = '';
       final assets = data['assets'] as List<dynamic>? ?? [];
@@ -146,6 +157,7 @@ class UpdateService {
       return UpdateInfo(
         version: tagName,
         downloadUrl: downloadUrl,
+        fastDownloadUrl: fastDownloadUrl,
         changelog: body,
         forceUpdate: false,
       );
@@ -281,34 +293,40 @@ class UpdateService {
         ),
       );
 
-      // 下载APK - 优先用GitHub，超时后重试
+      // 下载APK - 优先用国内加速，失败则用GitHub直链
       http.Response? response;
-      int retries = 0;
-      while (retries < 2) {
+      final urls = [
+        if (info.fastDownloadUrl != null) info.fastDownloadUrl!,
+        info.downloadUrl,
+      ];
+
+      for (int i = 0; i < urls.length; i++) {
         try {
-          response = await http.get(Uri.parse(info.downloadUrl))
-              .timeout(Duration(minutes: 3 + retries * 2));
-          break;
+          response = await http.get(Uri.parse(urls[i]))
+              .timeout(const Duration(minutes: 5));
+          if (response.statusCode == 200) break;
         } catch (_) {
-          retries++;
-          if (retries >= 2) {
+          if (i < urls.length - 1) {
+            // 切换到下一个源
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('下载较慢，切换到备用源...'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          } else {
+            // 所有源都失败
             if (!context.mounted) return;
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('下载失败，网络不稳定请重试'),
+                content: Text('下载失败，请稍后重试'),
                 backgroundColor: Colors.red,
               ),
             );
             return;
           }
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('下载较慢，请保持网络畅通...'),
-              backgroundColor: Colors.orange,
-            ),
-          );
         }
       }
 
