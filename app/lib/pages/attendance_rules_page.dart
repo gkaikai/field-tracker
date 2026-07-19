@@ -77,9 +77,12 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
           try {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             await dio.post('/api/v1/attendance/rules', data: {
-              'name': nameCtrl.text, 'startTime': startCtrl.text, 'endTime': endCtrl.text,
-              'radius': int.tryParse(radiusCtrl.text) ?? 300,
-              'centerLat': lat, 'centerLng': lng,
+              'name': nameCtrl.text,
+              'center_lat': lat,
+              'center_lng': lng,
+              'radius_meters': int.tryParse(radiusCtrl.text) ?? 300,
+              'checkin_start': startCtrl.text,
+              'checkin_end': endCtrl.text,
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             Navigator.pop(ctx); _load();
           } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('创建失败: $e'))); }
