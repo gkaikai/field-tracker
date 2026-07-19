@@ -12,7 +12,7 @@ on:
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
 
     steps:
@@ -35,34 +35,6 @@ jobs:
         run: flutter pub get
         working-directory: app
 
-      - name: 应用AGP namespace兼容补丁
-        run: |
-          # 将init.gradle放入Gradle自动加载目录
-          mkdir -p ~/.gradle/init.d/
-          cp app/android/init.gradle ~/.gradle/init.d/
-          echo "✅ init.gradle 已部署"
-          
-          # 同时直接补丁高德插件的build.gradle（双重保险）
-          python3 << 'PYEOF'
-          import glob, os, re
-          base = os.path.expanduser("~/.pub-cache/hosted/pub.dev")
-          for f in glob.glob(base + "/amap_flutter_*/android/build.gradle"):
-              with open(f) as fh:
-                  content = fh.read()
-              if "com.android.library" not in content:
-                  continue
-              if "namespace" in content or "namespace(" in content:
-                  continue
-              m = re.search(r"group\s+'([^']+)'", content)
-              ns = m.group(1).replace("-",".") if m else "com.amap.flutter"
-              content = content.replace("android {", 'android {\n    namespace "' + ns + '"\n    compileSdk 34')
-              content = re.sub(r'\n\s*compileSdkVersion\s+\d+', '', content)
-              with open(f, "w") as fh:
-                  fh.write(content)
-              print(f"✅ 已修复: {os.path.basename(os.path.dirname(os.path.dirname(f)))}")
-          print("✅ 补丁完成")
-          PYEOF
-
       - name: 构建 Release APK
         run: flutter build apk --release
         working-directory: app
@@ -74,7 +46,6 @@ jobs:
       - name: 准备更新日志
         run: |
           git tag -l '${{ steps.version.outputs.tag }}' --format='%(contents:body)' > /tmp/changelog.txt
-          cat /tmp/changelog.txt
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
