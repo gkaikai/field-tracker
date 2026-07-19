@@ -281,13 +281,39 @@ class UpdateService {
         ),
       );
 
-      // 下载APK
-      final response = await http.get(Uri.parse(info.downloadUrl)).timeout(
-        const Duration(minutes: 5),
-      );
+      // 下载APK - 优先用GitHub，超时后重试
+      http.Response? response;
+      int retries = 0;
+      while (retries < 2) {
+        try {
+          response = await http.get(Uri.parse(info.downloadUrl))
+              .timeout(Duration(minutes: 3 + retries * 2));
+          break;
+        } catch (_) {
+          retries++;
+          if (retries >= 2) {
+            if (!context.mounted) return;
+            Navigator.of(context).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('下载失败，网络不稳定请重试'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('下载较慢，请保持网络畅通...'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
 
-      if (response.statusCode != 200) {
-        throw Exception('下载失败: HTTP ${response.statusCode}');
+      if (response == null || response.statusCode != 200) {
+        throw Exception('下载失败: HTTP ${response?.statusCode ?? "无响应"}');
       }
 
       // 保存到临时目录

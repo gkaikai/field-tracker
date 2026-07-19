@@ -26,9 +26,6 @@ void main() async {
   final authService = AuthService();
   final isLoggedIn = await authService.restoreSession();
 
-  // 初始化高德定位SDK（隐私合规+API Key）
-  LocationService.initSdk();
-
   // 注册WorkManager周期性定位任务
   try {
     registerPeriodicLocationTask();
