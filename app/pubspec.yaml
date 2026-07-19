@@ -20,6 +20,8 @@ dependencies:
   workmanager: ^0.7.0
   # 网络请求
   dio: ^5.4.0
+  # HTTP (更新检测用)
+  http: ^1.2.0
   # 状态管理
   provider: ^6.1.0
   # 本地存储
@@ -37,6 +39,9 @@ dependencies:
   path_provider: ^2.1.5
   share_plus: ^10.1.4
   intl: ^0.20.2
+  # APP更新
+  package_info_plus: ^8.1.0
+  open_file: ^3.5.7
 
 dev_dependencies:
   flutter_test:

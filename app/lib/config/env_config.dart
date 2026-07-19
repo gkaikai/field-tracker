@@ -12,10 +12,10 @@ class EnvConfig {
   static String get baseUrl {
     if (kReleaseMode) {
       // 生产模式 - 通过 Serveo 公网隧道访问
-      return 'https://bf521a2cb506283e-123-123-97-213.serveousercontent.com';
+      return 'https://f8325e03e04d6c3b-123-123-97-213.serveousercontent.com';
     } else if (kProfileMode) {
       // Profile 模式 - 也使用生产地址
-      return 'https://bf521a2cb506283e-123-123-97-213.serveousercontent.com';
+      return 'https://f8325e03e04d6c3b-123-123-97-213.serveousercontent.com';
     } else {
       // 开发/调试模式 - 本地服务器
       // Android 模拟器用 10.0.2.2 映射宿主机 localhost

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'services/auth_service.dart';
 import 'services/location_service.dart';
+import 'services/update_service.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
 import 'pages/permission_guide_page.dart';
@@ -42,6 +43,13 @@ class FieldTrackerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 启动时检查更新
+    if (isLoggedIn) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkUpdate(context);
+      });
+    }
+
     return MaterialApp(
       title: '外勤定位',
       debugShowCheckedModeBanner: false,
@@ -56,5 +64,17 @@ class FieldTrackerApp extends StatelessWidget {
         '/permission': (context) => const PermissionGuidePage(),
       },
     );
+  }
+}
+
+/// 检查新版本
+Future<void> _checkUpdate(BuildContext context) async {
+  try {
+    final updateInfo = await UpdateService.checkForUpdate();
+    if (updateInfo != null && context.mounted) {
+      await UpdateService.showUpdateDialog(context, updateInfo);
+    }
+  } catch (e) {
+    debugPrint('[Update] 检查更新异常: $e');
   }
 }

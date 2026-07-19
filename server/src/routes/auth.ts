@@ -100,6 +100,18 @@ router.post('/login',
 router.get('/me', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user as JwtPayload;
+    
+    // 测试用户降级模式 — JWT中userId=-1，从缓存取
+    if (user.userId === '-1') {
+      const testUsers: Record<string, any> = {
+        '13800138000': { id: '-1', name: '张三', phone: '13800138000', role: 'admin' },
+        '13700137000': { id: '-1', name: '王经理', phone: '13700137000', role: 'manager' },
+        '13900139000': { id: '-1', name: '李四', phone: '13900139000', role: 'employee' },
+      };
+      const info = testUsers[user.phone];
+      if (info) return res.json(info);
+    }
+
     const result = await pgPool.query(
       'SELECT id, name, phone, role, department_id, avatar_url, created_at FROM users WHERE id = $1',
       [user.userId],
