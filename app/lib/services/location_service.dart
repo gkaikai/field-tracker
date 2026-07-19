@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import '../config/app_config.dart';
 import 'api_service.dart';
+import '../utils/geo_convert.dart';
 
 /// 定位服务 — 使用 Geolocator（兼容HarmonyOS）+ 高精度GPS
 ///
@@ -75,12 +76,27 @@ class LocationService {
 
     // 3. 获取一次高精度GPS位置（确保第一次定位就有数据）
     try {
-      _currentPosition = await Geolocator.getCurrentPosition(
+      final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 15),
       );
-      if (_currentPosition != null) {
-        _addToBuffer(_currentPosition!);
+      if (pos != null) {
+        // WGS-84 → GCJ-02 转换
+        final (gcjLat, gcjLng) = wgs84ToGcj02(pos.latitude, pos.longitude);
+        final converted = Position(
+          latitude: gcjLat,
+          longitude: gcjLng,
+          timestamp: pos.timestamp,
+          accuracy: pos.accuracy,
+          altitude: pos.altitude,
+          heading: pos.heading,
+          speed: pos.speed,
+          speedAccuracy: pos.speedAccuracy,
+          altitudeAccuracy: pos.altitudeAccuracy,
+          headingAccuracy: pos.headingAccuracy,
+        );
+        _currentPosition = converted;
+        _addToBuffer(converted);
       }
     } catch (e) {
       // 首次定位失败不阻止继续
@@ -103,20 +119,35 @@ class LocationService {
           return; // 精度太差，跳过
         }
 
+        // WGS-84 → GCJ-02 转换
+        final (gcjLat, gcjLng) = wgs84ToGcj02(position.latitude, position.longitude);
+        final converted = Position(
+          latitude: gcjLat,
+          longitude: gcjLng,
+          timestamp: position.timestamp,
+          accuracy: position.accuracy,
+          altitude: position.altitude,
+          heading: position.heading,
+          speed: position.speed,
+          speedAccuracy: position.speedAccuracy,
+          altitudeAccuracy: position.altitudeAccuracy,
+          headingAccuracy: position.headingAccuracy,
+        );
+
         // 更新最佳精度记录
-        if (position.accuracy < _bestAccuracy) {
-          _bestAccuracy = position.accuracy;
+        if (converted.accuracy < _bestAccuracy) {
+          _bestAccuracy = converted.accuracy;
         }
 
-        _currentPosition = position;
-        _addToBuffer(position);
+        _currentPosition = converted;
+        _addToBuffer(converted);
 
         // 对外回调
         onLocationChanged?.call(
-          position.latitude,
-          position.longitude,
-          position.accuracy,
-          position.speed,
+          converted.latitude,
+          converted.longitude,
+          converted.accuracy,
+          converted.speed,
         );
       },
       onError: (error) {

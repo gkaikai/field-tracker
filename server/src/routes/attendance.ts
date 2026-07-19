@@ -64,8 +64,8 @@ router.post('/checkin',
                   checkout_start, checkout_end
            FROM attendance_rules
            WHERE (department_id IS NULL OR department_id = $1)
-           ORDER BY department_id NULLS LAST
-           LIMIT 1`,
+             AND is_active = true
+           ORDER BY created_at DESC`,
           [user.departmentId || null],
         );
         rules = rulesResult;
@@ -75,35 +75,50 @@ router.post('/checkin',
       }
 
       // 2. 如果有规则，校验位置是否在有效范围内
+      let matchedRule = false;
       if (rules.rows.length > 0) {
-        const rule = rules.rows[0];
+        for (const rule of rules.rows) {
+          let ruleMatch = false;
 
-        // 位置打卡模式 — 校验距离
-        if (rule.rule_type === 'location' && rule.center_lat && rule.center_lng) {
-          const distance = haversineDistance(
-            lat, lng,
-            rule.center_lat, rule.center_lng,
-          );
-          if (distance > (rule.radius_meters || 300)) {
-            throw new AppError('ATTEND_OUT_OF_RANGE');  // 不在打卡范围内
+          // 位置打卡模式 — 校验距离
+          if (rule.rule_type === 'location' && rule.center_lat && rule.center_lng) {
+            const distance = haversineDistance(
+              lat, lng,
+              rule.center_lat, rule.center_lng,
+            );
+            if (distance <= (rule.radius_meters || 300)) {
+              ruleMatch = true;
+            }
+          }
+
+          // WiFi 打卡模式 — 校验 BSSID
+          if (rule.rule_type === 'wifi' && rule.wifi_bssid) {
+            if (wifi_bssid && wifi_bssid === rule.wifi_bssid) {
+              ruleMatch = true;
+            }
+          }
+
+          // 如果当前规则匹配，记录并继续检查时间
+          if (ruleMatch) {
+            // 校验时间范围
+            if (type === 'checkin' && rule.checkin_start && rule.checkin_end) {
+              const now = new Date();
+              const time = now.toTimeString().slice(0, 5);
+              if (time >= rule.checkin_start.slice(0, 5) && time <= rule.checkin_end.slice(0, 5)) {
+                matchedRule = true;
+                break;
+              }
+            } else {
+              // 没有时间限制的规则直接匹配
+              matchedRule = true;
+              break;
+            }
           }
         }
+      }
 
-        // WiFi 打卡模式 — 校验 BSSID
-        if (rule.rule_type === 'wifi' && rule.wifi_bssid) {
-          if (!wifi_bssid || wifi_bssid !== rule.wifi_bssid) {
-            throw new AppError('PARAM_INVALID');
-          }
-        }
-
-        // 校验时间范围
-        if (type === 'checkin' && rule.checkin_start && rule.checkin_end) {
-          const now = new Date();
-          const time = now.toTimeString().slice(0, 5);
-          if (time < rule.checkin_start.slice(0, 5) || time > rule.checkin_end.slice(0, 5)) {
-            throw new AppError('PARAM_INVALID');
-          }
-        }
+      if (rules.rows.length > 0 && !matchedRule) {
+        throw new AppError('ATTEND_OUT_OF_RANGE');
       }
 
       // 3. 写入打卡记录
