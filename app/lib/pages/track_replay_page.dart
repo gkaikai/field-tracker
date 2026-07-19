@@ -174,25 +174,38 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       ));
     }
 
-    // 起点终点标记
+    // 当前点位标记（小蓝点）
     final markers = <Marker>{};
     if (_points.isNotEmpty) {
-      final first = _points.first;
-      final last = _points.last;
-
-      markers.add(Marker(
-        position: LatLng(first['lat'] as double, first['lng'] as double),
-        icon: BitmapDescriptor.defaultMarker,
-        infoWindow: const InfoWindow(title: '起点'),
-      ));
-
+      final currentIdx = _sliderValue.toInt().clamp(0, _points.length - 1);
+      final current = _points[currentIdx];
+      
+      // 起点标记（绿点）
       if (_points.length > 1) {
+        final first = _points.first;
+        markers.add(Marker(
+          position: LatLng(first['lat'] as double, first['lng'] as double),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(title: '起点'),
+        ));
+        // 终点标记（红点）
+        final last = _points.last;
         markers.add(Marker(
           position: LatLng(last['lat'] as double, last['lng'] as double),
-          icon: BitmapDescriptor.defaultMarker,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: '终点'),
         ));
       }
+
+      // 当前定位小蓝点（播放时跟随移动）
+      markers.add(Marker(
+        position: LatLng(current['lat'] as double, current['lng'] as double),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(
+          title: _formatTime(current['timestamp'] as int),
+          snippet: '${current['lat'].toStringAsFixed(5)}, ${current['lng'].toStringAsFixed(5)}',
+        ),
+      ));
     }
 
     setState(() {
@@ -227,8 +240,27 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       if (p.longitude > maxLng) maxLng = p.longitude;
     }
 
-    final latPad = ((maxLat - minLat) * 0.3).clamp(0.001, 0.1);
-    final lngPad = ((maxLng - minLng) * 0.3).clamp(0.001, 0.1);
+    final latSpan = (maxLat - minLat).abs();
+    final lngSpan = (maxLng - minLng).abs();
+
+    // 如果轨迹跨度太大（如跨城市），不要缩到全国，
+    // 而是缩放到第一个点附近的可视范围（zoom=14）
+    if (latSpan > 0.5 || lngSpan > 0.5) {
+      // 跨城市：居中在第一个点附近
+      _mapController?.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: points.first,
+            zoom: 14,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 正常局部轨迹：缩放到刚好显示所有点
+    final latPad = ((maxLat - minLat) * 0.3).clamp(0.001, 0.02);
+    final lngPad = ((maxLng - minLng) * 0.3).clamp(0.001, 0.02);
 
     _mapController?.moveCamera(
       CameraUpdate.newLatLngBounds(
@@ -239,6 +271,40 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         50,
       ),
     );
+  }
+
+  /// 更新当前定位标记（滑块/播放时触发）
+  void _updateCurrentMarker() {
+    if (_points.isEmpty) return;
+    final currentIdx = _sliderValue.toInt().clamp(0, _points.length - 1);
+    final current = _points[currentIdx];
+    
+    setState(() {
+      final markers = <Marker>{};
+      if (_points.length > 1) {
+        final first = _points.first;
+        markers.add(Marker(
+          position: LatLng(first['lat'] as double, first['lng'] as double),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(title: '起点'),
+        ));
+        final last = _points.last;
+        markers.add(Marker(
+          position: LatLng(last['lat'] as double, last['lng'] as double),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(title: '终点'),
+        ));
+      }
+      markers.add(Marker(
+        position: LatLng(current['lat'] as double, current['lng'] as double),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(
+          title: _formatTime(current['timestamp'] as int),
+          snippet: '${current['lat'].toStringAsFixed(5)}, ${current['lng'].toStringAsFixed(5)}',
+        ),
+      ));
+      _markers = markers;
+    });
   }
 
   void _selectDate() async {
@@ -283,6 +349,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         return;
       }
       setState(() => _sliderValue = nextVal);
+      _updateCurrentMarker();
       final p = _points[nextVal.toInt()];
       _mapController?.moveCamera(
         CameraUpdate.newLatLng(LatLng(p['lat'] as double, p['lng'] as double)),
@@ -752,6 +819,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                           divisions: _points.length - 1,
                           onChanged: (v) {
                             setState(() => _sliderValue = v);
+                            _updateCurrentMarker();
                             final p = _points[v.toInt()];
                             _mapController?.moveCamera(
                               CameraUpdate.newLatLng(LatLng(
