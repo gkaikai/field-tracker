@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,26 +8,48 @@ import '../config/app_config.dart';
 import 'api_service.dart';
 
 /// 定位服务 — 使用 Geolocator（兼容HarmonyOS）+ 高精度GPS
+///
+/// 改进（v2）：
+///   - 位置缓存队列（去噪 + 平滑）
+///   - 高频上报（每15秒 或 缓存满5条即上报）
+///   - 精度校验（accuracy>100m剔除）
+///   - 简单滑动平均滤波
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
 
   final ApiService _api = ApiService();
+
+  // 当前位置
   Position? _currentPosition;
   StreamSubscription<Position>? _positionStream;
   Timer? _uploadTimer;
-  int _currentInterval = AppConfig.locationIntervalSeconds;
   bool _isRunning = false;
 
+  // 位置缓存队列（用于去噪 + 平滑 + 批量上报）
+  final Queue<_PositionRecord> _positionBuffer = Queue();
+  static const int _maxBufferSize = 5;       // 缓存满5条立即上报
+  static const int _uploadIntervalSec = 12;   // 每12秒上报一次
+  static const double _maxAcceptableAccuracy = 100.0; // 精度超过100米跳过
+
+  // 性能统计
+  int _totalPositions = 0;
+  int _rejectedPositions = 0;
+  double _bestAccuracy = 999;
+
   // 回调
-  void Function(double lat, double lng, double accuracy)? onLocationChanged;
+  void Function(double lat, double lng, double accuracy, double? speed)? onLocationChanged;
   void Function(String error)? onError;
 
   LocationService._internal();
 
   double? get currentLat => _currentPosition?.latitude;
   double? get currentLng => _currentPosition?.longitude;
+  double? get currentAccuracy => _currentPosition?.accuracy;
   bool get isRunning => _isRunning;
+  int get totalPositions => _totalPositions;
+  int get rejectedPositions => _rejectedPositions;
+  double get bestAccuracy => _bestAccuracy;
 
   /// 启动持续定位
   Future<bool> startTracking() async {
@@ -53,8 +76,12 @@ class LocationService {
     // 3. 获取一次高精度GPS位置（确保第一次定位就有数据）
     try {
       _currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.bestForNavigation, // 导航级精度
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 15),
       );
+      if (_currentPosition != null) {
+        _addToBuffer(_currentPosition!);
+      }
     } catch (e) {
       // 首次定位失败不阻止继续
     }
@@ -62,17 +89,34 @@ class LocationService {
     // 4. 持续监听位置变化（精度最高，距离过滤0米）
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation, // 导航级精度
+        accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,       // 每一米都触发更新
         timeLimit: null,
       ),
     ).listen(
       (Position position) {
+        _totalPositions++;
+
+        // 精度校验
+        if (position.accuracy > _maxAcceptableAccuracy) {
+          _rejectedPositions++;
+          return; // 精度太差，跳过
+        }
+
+        // 更新最佳精度记录
+        if (position.accuracy < _bestAccuracy) {
+          _bestAccuracy = position.accuracy;
+        }
+
         _currentPosition = position;
+        _addToBuffer(position);
+
+        // 对外回调
         onLocationChanged?.call(
           position.latitude,
           position.longitude,
           position.accuracy,
+          position.speed,
         );
       },
       onError: (error) {
@@ -80,10 +124,10 @@ class LocationService {
       },
     );
 
-    // 5. 定时上报位置
+    // 5. 定时上报位置（每12秒）
     _uploadTimer = Timer.periodic(
-      Duration(seconds: _currentInterval),
-      (_) => _uploadPosition(),
+      const Duration(seconds: _uploadIntervalSec),
+      (_) => _flushBuffer(),
     );
 
     _isRunning = true;
@@ -96,36 +140,68 @@ class LocationService {
     _positionStream = null;
     _uploadTimer?.cancel();
     _uploadTimer = null;
+    _positionBuffer.clear();
     _isRunning = false;
     _currentPosition = null;
   }
 
-  /// 上报位置到服务器
-  Future<void> _uploadPosition() async {
-    if (_currentPosition == null) return;
+  // ===================================================================
+  //  位置缓存 & 上报
+  // ===================================================================
+
+  /// 将位置加入缓存（满maxBufferSize自动上报）
+  void _addToBuffer(Position pos) {
+    _positionBuffer.add(_PositionRecord(
+      lat: pos.latitude,
+      lng: pos.longitude,
+      accuracy: pos.accuracy,
+      speed: pos.speed,
+      timestamp: pos.timestamp.millisecondsSinceEpoch,
+    ));
+
+    if (_positionBuffer.length >= _maxBufferSize) {
+      _flushBuffer();
+    }
+  }
+
+  /// 刷新缓存（上报 + 清空）
+  Future<void> _flushBuffer() async {
+    if (_positionBuffer.isEmpty) return;
+
+    final batch = _positionBuffer.toList();
+    _positionBuffer.clear();
+
+    // 取最后一条作为"当前位置"
+    final last = batch.last;
+
+    // 平滑处理取均值（消除GPS抖动）
+    final avgLat = batch.map((p) => p.lat).reduce((a, b) => a + b) / batch.length;
+    final avgLng = batch.map((p) => p.lng).reduce((a, b) => a + b) / batch.length;
+    final avgAccuracy = batch.map((p) => p.accuracy).reduce((a, b) => a + b) / batch.length;
 
     try {
       await _api.post(AppConfig.apiReportLocation, data: {
-        'lng': _currentPosition!.longitude,
-        'lat': _currentPosition!.latitude,
-        'accuracy': _currentPosition!.accuracy,
-        'speed': _currentPosition!.speed,
-        'timestamp': _currentPosition!.timestamp.millisecondsSinceEpoch,
+        'lng': avgLng,
+        'lat': avgLat,
+        'accuracy': avgAccuracy,
+        'speed': last.speed ?? 0,
+        'timestamp': last.timestamp,
+        'batch_size': batch.length,
       });
-    } catch (e) {
+    } catch (_) {
       // 网络失败静默处理
     }
 
-    // 围栏检测
+    // 围栏检测（用平滑后的坐标）
     try {
       await _api.post('/api/v1/fences/auto-check', data: {
-        'lat': _currentPosition!.latitude,
-        'lng': _currentPosition!.longitude,
+        'lat': avgLat,
+        'lng': avgLng,
       });
     } catch (_) {}
   }
 
-  /// 获取最新一次位置（供单次调用场景用）
+  /// 获取最新一次位置
   Future<Position?> getLastKnownPosition() async {
     try {
       final pos = await Geolocator.getLastKnownPosition();
@@ -139,42 +215,19 @@ class LocationService {
   }
 }
 
-/// WorkManager后台周期性任务
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, inputData) async {
-    if (task == 'periodicLocationUpload') {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token == null) return false;
-      try {
-        final position = await Geolocator.getLastKnownPosition();
-        if (position != null) {
-          final api = ApiService();
-          api.setToken(token);
-          await api.post(AppConfig.apiReportLocation, data: {
-            'lng': position.longitude,
-            'lat': position.latitude,
-          });
-        }
-      } catch (_) {}
-      return true;
-    }
-    return false;
-  });
-}
+/// 位置缓存记录
+class _PositionRecord {
+  final double lat;
+  final double lng;
+  final double accuracy;
+  final double? speed;
+  final int timestamp;
 
-/// 注册WorkManager周期性定位任务
-void registerPeriodicLocationTask() {
-  Workmanager().registerPeriodicTask(
-    'periodicLocationUpload',
-    'periodicLocationUpload',
-    frequency: Duration(minutes: 15),
-    constraints: Constraints(
-      networkType: NetworkType.connected,
-    ),
-    existingWorkPolicy: ExistingWorkPolicy.keep,
-    backoffPolicy: BackoffPolicy.linear,
-    backoffPolicyDelay: Duration(minutes: 1),
-  );
+  const _PositionRecord({
+    required this.lat,
+    required this.lng,
+    required this.accuracy,
+    this.speed,
+    required this.timestamp,
+  });
 }

@@ -28,6 +28,7 @@ class _MapPageState extends State<MapPage> {
   bool _isLocating = false;
   bool _isCheckInLoading = false;
   String _statusText = '正在获取定位...';
+  String _accuracyText = '';
 
   // 客户标记相关
   final ApiService _api = ApiService();
@@ -65,8 +66,8 @@ class _MapPageState extends State<MapPage> {
       return;
     }
 
-    // 监听高德定位结果
-    loc.onLocationChanged = (lat, lng, accuracy) {
+    // 监听定位结果
+    loc.onLocationChanged = (lat, lng, accuracy, speed) {
       if (mounted) {
         setState(() {
           _currentLat = lat;
@@ -74,6 +75,8 @@ class _MapPageState extends State<MapPage> {
           _isLocating = true;
           _statusText =
               '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+          _accuracyText = '精度: ${accuracy.toStringAsFixed(0)}m'
+              '${speed != null && speed > 0 ? ' 速度: ${speed.toStringAsFixed(1)}m/s' : ''}';
         });
         _mapController?.moveCamera(
           CameraUpdate.newLatLng(LatLng(lat, lng)),
@@ -337,10 +340,22 @@ class _MapPageState extends State<MapPage> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        _statusText,
-                        style: const TextStyle(fontSize: 13),
-                        overflow: TextOverflow.ellipsis,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _statusText,
+                            style: const TextStyle(fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (_accuracyText.isNotEmpty)
+                            Text(
+                              _accuracyText,
+                              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
                       ),
                     ),
                   ],

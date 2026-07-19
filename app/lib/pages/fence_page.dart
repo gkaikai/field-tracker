@@ -185,7 +185,7 @@ class _FencePageState extends State<FencePage>
     }
   }
 
-  /// 地址搜索 - 通过服务端代理（兼容鸿蒙）
+  /// 地址搜索 - 调用高德地图地理编码API
   Future<void> _searchAddress() async {
     final keyword = _searchCtrl.text.trim();
     if (keyword.isEmpty) return;
@@ -193,35 +193,28 @@ class _FencePageState extends State<FencePage>
     try {
       final dio = Dio();
       final resp = await dio.get(
-        '${AMapConfig.serverBaseUrl}/api/v1/geocode/search',
-        queryParameters: {'address': keyword},
+        'https://restapi.amap.com/v3/geocode/geo',
+        queryParameters: {
+          'key': AMapConfig.webServiceKey,
+          'address': keyword,
+          'output': 'JSON',
+          'city': '',
+        },
       );
-
-      if (resp.statusCode != 200) {
-        throw Exception('服务异常: ${resp.statusCode}');
-      }
-
-      final data = resp.data;
-      if (data['success'] != true) {
-        throw Exception(data['message'] ?? '搜索失败');
-      }
-
-      final results = data['results'] as List? ?? [];
-      if (results.isEmpty) {
+      final geocodes = resp.data['geocodes'] as List?;
+      if (geocodes == null || geocodes.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('未找到该地址'),
-                backgroundColor: Colors.orange));
+            const SnackBar(content: Text('未找到该地址'), backgroundColor: Colors.orange));
         }
         return;
       }
-
-      final first = results[0] as Map<String, dynamic>;
-      final lat = (first['lat'] as num).toDouble();
-      final lng = (first['lng'] as num).toDouble();
-      final address = first['address'] as String? ?? keyword;
-
+      final location = geocodes[0]['location'] as String? ?? '';
+      final parts = location.split(',');
+      if (parts.length != 2) throw Exception('坐标格式错误');
+      final lng = double.parse(parts[0]);
+      final lat = double.parse(parts[1]);
+      final address = geocodes[0]['formattedAddress'] as String? ?? keyword;
       if (mounted) {
         setState(() {
           if (_isCircleMode) {
@@ -234,16 +227,12 @@ class _FencePageState extends State<FencePage>
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('已定位到: $address'),
-              backgroundColor: Colors.green));
+          SnackBar(content: Text('已定位到: $address'), backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('搜索失败: $e'),
-              backgroundColor: Colors.red));
+          SnackBar(content: Text('搜索失败: $e'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _searchLoading = false);

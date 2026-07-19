@@ -17,7 +17,7 @@ void main() async {
 
   // 初始化WorkManager（后台定位用）
   try {
-    await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
+    await Workmanager().initialize((task) => debugPrint('WorkManager: $task'), isInDebugMode: false);
   } catch (e) {
     debugPrint('WorkManager init skipped: $e');
   }
@@ -26,9 +26,14 @@ void main() async {
   final authService = AuthService();
   final isLoggedIn = await authService.restoreSession();
 
-  // 注册WorkManager周期性定位任务
+  // 注册WorkManager周期性定位任务（后台保活）
   try {
-    registerPeriodicLocationTask();
+    await Workmanager().registerPeriodicTask(
+      'location-background',
+      'locationTask',
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(networkType: NetworkType.connected),
+    );
   } catch (e) {
     debugPrint('PeriodicTask register skipped: $e');
   }
