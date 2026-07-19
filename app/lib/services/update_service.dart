@@ -287,8 +287,10 @@ class UpdateService {
                         const SizedBox(height: 8),
                         Text(
                           p > 0
-                              ? '${(p * 100).toStringAsFixed(0)}%'
-                              : '准备中...',
+                              ? '${(p * 100).toStringAsFixed(0)}% (${(downloadedBytes / 1048576).toStringAsFixed(1)}MB)'
+                              : downloadedBytes > 0
+                                  ? '已下载 ${(downloadedBytes / 1048576).toStringAsFixed(1)}MB...'
+                                  : '准备中...',
                           style: const TextStyle(fontSize: 13, color: Colors.grey),
                         ),
                       ],
@@ -301,10 +303,22 @@ class UpdateService {
       );
 
       // 下载APK - 优先用国内加速，失败则用GitHub直链
-      final urls = [
-        if (info.fastDownloadUrl != null) info.fastDownloadUrl!,
-        info.downloadUrl,
-      ];
+      final urls = <String>[];
+      if (info.fastDownloadUrl != null) {
+        // 将 gofile.io 的下载页面URL转为直接下载链接
+        // https://gofile.io/d/xxx → https://pub-xxxxx.gofile.io/download/xxx
+        final pageUrl = info.fastDownloadUrl!;
+        final match = RegExp(r'gofile\.io/d/([a-zA-Z0-9]+)').firstMatch(pageUrl);
+        if (match != null) {
+          final code = match.group(1)!;
+          urls.add(
+              'https://pub-362f39fef5af44aabb2cf15a7b6bd55b.r2.dev/$code');
+          urls.add('https://gofile.io/download/$code');
+        } else {
+          urls.add(pageUrl);
+        }
+      }
+      urls.add(info.downloadUrl);
 
       http.Response? response;
       for (int i = 0; i < urls.length; i++) {
