@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:amap_flutter_location/amap_flutter_location.dart';
 import 'package:amap_flutter_location/amap_location_option.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +47,24 @@ class LocationService {
   /// 启动持续定位
   Future<bool> startTracking() async {
     if (_isRunning) return true;
+
+    // 1. 检查并请求定位权限（用Geolocator的权限API）
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      onError?.call('定位权限被拒绝');
+      return false;
+    }
+
+    // 2. 检查GPS是否开启
+    final isGpsEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!isGpsEnabled) {
+      onError?.call('请开启GPS定位');
+      return false;
+    }
 
     try {
       _locationPlugin = AMapFlutterLocation();

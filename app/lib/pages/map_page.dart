@@ -82,7 +82,7 @@ class _MapPageState extends State<MapPage> {
     // 启动高德定位
     final started = await loc.startTracking();
     if (!started && mounted) {
-      setState(() => _statusText = '定位启动失败，请检查定位权限');
+      setState(() => _statusText = '定位启动失败，请在设置中开启定位权限和GPS');
     }
   }
 
