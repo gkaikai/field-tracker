@@ -20,7 +20,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // 服务端地址（从环境配置同步）
-const String _serverBaseUrl = 'https://f8b09e58fb70b846-123-123-97-213.serveousercontent.com';
+const String _serverBaseUrl = 'https://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com';
 
 /// 初始化后台定位服务
 Future<void> initializeBackgroundService() async {
