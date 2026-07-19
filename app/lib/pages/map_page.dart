@@ -1,12 +1,13 @@
 // 地图首页 - 实时定位 + 打卡 + 客户标记
+// 使用高德定位SDK代替Geolocator
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
-import 'package:geolocator/geolocator.dart';
 import '../config/amap_key.dart';
+import '../services/location_service.dart';
 import '../services/attendance_service.dart';
 import '../services/api_service.dart';
 import 'attendance_page.dart';
@@ -20,7 +21,8 @@ class MapPage extends StatefulWidget {
 
 class _MapPageState extends State<MapPage> {
   AMapController? _mapController;
-  Position? _currentPosition;
+  double? _currentLat;
+  double? _currentLng;
   bool _isLocating = false;
   bool _isCheckInLoading = false;
   String _statusText = '正在获取定位...';
@@ -43,47 +45,53 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _initLocation() async {
-    try {
-      // 检查定位权限
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+    // 用LocationService替代Geolocator
+    final loc = LocationService();
+    if (loc.isRunning) {
+      // 如果已经启动，直接取最新位置
+      if (loc.currentLat != null && loc.currentLng != null) {
         if (mounted) {
-          setState(() => _statusText = '定位权限被拒绝，请在设置中开启');
+          setState(() {
+            _currentLat = loc.currentLat;
+            _currentLng = loc.currentLng;
+            _isLocating = true;
+            _statusText =
+                '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
+          });
         }
-        return;
       }
+      return;
+    }
 
-      // 获取当前位置
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
+    // 监听高德定位结果
+    loc.onLocationChanged = (lat, lng, accuracy) {
       if (mounted) {
         setState(() {
-          _currentPosition = pos;
+          _currentLat = lat;
+          _currentLng = lng;
           _isLocating = true;
-          _statusText = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+          _statusText =
+              '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
         });
         _mapController?.moveCamera(
-          CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
+          CameraUpdate.newLatLng(LatLng(lat, lng)),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _statusText = '定位失败: $e');
-      }
+    };
+
+    // 启动高德定位
+    final started = await loc.startTracking();
+    if (!started && mounted) {
+      setState(() => _statusText = '定位启动失败，请检查定位权限');
     }
   }
 
   void _locateMe() {
-    if (_currentPosition != null) {
+    final lat = _currentLat;
+    final lng = _currentLng;
+    if (lat != null && lng != null) {
       _mapController?.moveCamera(
-        CameraUpdate.newLatLng(
-            LatLng(_currentPosition!.latitude, _currentPosition!.longitude)),
+        CameraUpdate.newLatLng(LatLng(lat, lng)),
       );
     } else {
       _initLocation();
@@ -92,11 +100,14 @@ class _MapPageState extends State<MapPage> {
 
   /// 打卡
   void _onCheckIn() async {
-    final pos = _currentPosition;
-    if (pos == null) {
+    final lat = _currentLat;
+    final lng = _currentLng;
+    if (lat == null || lng == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('尚未获取到位置，请稍后重试'), backgroundColor: Colors.orange),
+        const SnackBar(
+            content: Text('尚未获取到位置，请稍后重试'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
@@ -110,11 +121,13 @@ class _MapPageState extends State<MapPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'checkin'),
-            child: const Text('签到', style: TextStyle(fontSize: 16)),
+            child:
+                const Text('签到', style: TextStyle(fontSize: 16)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'checkout'),
-            child: const Text('签退', style: TextStyle(fontSize: 16)),
+            child:
+                const Text('签退', style: TextStyle(fontSize: 16)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -130,9 +143,9 @@ class _MapPageState extends State<MapPage> {
     try {
       final result = await AttendanceService().checkin(
         type: type,
-        lng: pos.longitude,
-        lat: pos.latitude,
-        address: '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}',
+        lng: lng,
+        lat: lat,
+        address: '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
       );
 
       if (!mounted) return;
@@ -140,14 +153,17 @@ class _MapPageState extends State<MapPage> {
       final checkTime = result['checkTime'] ?? '';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${type == "checkin" ? "签到" : "签退"}成功 ($checkTime)'),
+          content: Text(
+              '${type == "checkin" ? "签到" : "签退"}成功 ($checkTime)'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打卡失败: $e'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('打卡失败: $e'),
+            backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isCheckInLoading = false);
@@ -156,7 +172,6 @@ class _MapPageState extends State<MapPage> {
 
   // -------- 客户标记相关 --------
 
-  /// 从 API 拉取客户列表，为有坐标的客户创建地图标记
   Future<void> _loadCustomers() async {
     if (_isLoadingCustomers) return;
     setState(() => _isLoadingCustomers = true);
@@ -170,7 +185,6 @@ class _MapPageState extends State<MapPage> {
       for (final c in list) {
         final lat = (c['lat'] as num?)?.toDouble();
         final lng = (c['lng'] as num?)?.toDouble();
-        // 跳过没有坐标的客户
         if (lat == null || lng == null || (lat == 0 && lng == 0)) continue;
 
         final name = c['name'] as String? ?? '';
@@ -189,7 +203,8 @@ class _MapPageState extends State<MapPage> {
       if (mounted) {
         setState(() {
           _customerMarkers = markers;
-          _statusText = '${_currentPosition != null ? '${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)}' : '定位中...'} | 客户 ${markers.length}';
+          _statusText =
+              '${_currentLat != null ? '${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}' : '定位中...'} | 客户 ${markers.length}';
         });
       }
     } catch (e) {
@@ -199,26 +214,27 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
-  /// 点击客户标记时弹出详情面板（含拜访按钮）
   void _onCustomerMarkerTapped(Map<String, dynamic> customer) {
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) => _CustomerMarkerSheet(
         customer: customer,
-        currentPosition: _currentPosition,
+        lat: _currentLat,
+        lng: _currentLng,
         onVisit: _visitCustomer,
       ),
     );
   }
 
-  /// 提交拜访记录
   Future<void> _visitCustomer(Map<String, dynamic> customer) async {
-    final pos = _currentPosition;
-    if (pos == null) {
+    final lat = _currentLat;
+    final lng = _currentLng;
+    if (lat == null || lng == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -232,11 +248,11 @@ class _MapPageState extends State<MapPage> {
     try {
       await _api.post('/api/v1/customers/visit', data: {
         'customerId': customer['id'],
-        'lat': pos.latitude,
-        'lng': pos.longitude,
+        'lat': lat,
+        'lng': lng,
       });
       if (!mounted) return;
-      Navigator.pop(context); // 关闭底部面板
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('已记录对 ${customer['name']} 的拜访'),
@@ -246,7 +262,9 @@ class _MapPageState extends State<MapPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('拜访记录失败: $e'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('拜访记录失败: $e'),
+            backgroundColor: Colors.red),
       );
     }
   }
@@ -257,7 +275,7 @@ class _MapPageState extends State<MapPage> {
       body: Stack(
         children: [
           AMapWidget(
-            apiKey: const AMapApiKey(
+            apiKey: AMapApiKey(
               androidKey: AMapConfig.androidKey,
               iosKey: AMapConfig.iosKey,
             ),
@@ -272,10 +290,10 @@ class _MapPageState extends State<MapPage> {
             ),
             onMapCreated: (controller) {
               _mapController = controller;
-              if (_currentPosition != null) {
+              if (_currentLat != null && _currentLng != null) {
                 controller.moveCamera(
-                  CameraUpdate.newLatLng(LatLng(
-                      _currentPosition!.latitude, _currentPosition!.longitude)),
+                  CameraUpdate.newLatLng(
+                      LatLng(_currentLat!, _currentLng!)),
                 );
               }
             },
@@ -294,24 +312,21 @@ class _MapPageState extends State<MapPage> {
             right: 12,
             child: Card(
               elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    // 返回按钮
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: const Icon(Icons.arrow_back, size: 24, color: Colors.blue),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isLocating ? Colors.green : Colors.grey,
-                      ),
+                    Icon(
+                      _currentLat != null
+                          ? Icons.location_on
+                          : Icons.location_searching,
+                      color: _currentLat != null
+                          ? Colors.green
+                          : Colors.grey,
+                      size: 18,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -327,51 +342,51 @@ class _MapPageState extends State<MapPage> {
             ),
           ),
 
-          // ---- 底部按钮行：定位 + 打卡 + 记录 ----
+          // ---- 底部操作按钮 ----
           Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 24,
-            left: 24,
-            right: 24,
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 16,
+            right: 16,
             child: Row(
               children: [
+                // 定位我
                 FloatingActionButton.small(
                   heroTag: 'locate',
                   onPressed: _locateMe,
-                  child: const Icon(Icons.my_location),
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.my_location,
+                      color: Colors.blue),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
+                // 查看轨迹
                 Expanded(
-                  child: SizedBox(
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: _isCheckInLoading ? null : _onCheckIn,
-                      icon: _isCheckInLoading
-                          ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.fingerprint, size: 24),
-                      label: Text(_isCheckInLoading ? '打卡中...' : '打卡', style: const TextStyle(fontSize: 16)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(26),
-                        ),
-                        elevation: 4,
-                      ),
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AttendancePage()),
                     ),
+                    icon: const Icon(Icons.timeline),
+                    label: const Text('考勤轨迹'),
                   ),
                 ),
                 const SizedBox(width: 12),
-                FloatingActionButton.small(
-                  heroTag: 'records',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AttendancePage()),
+                // 打卡
+                ElevatedButton.icon(
+                  onPressed: _isCheckInLoading ? null : _onCheckIn,
+                  icon: _isCheckInLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2),
+                        )
+                      : const Icon(Icons.fingerprint),
+                  label: Text(_isCheckInLoading ? '打卡中...' : '打卡'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
                   ),
-                  backgroundColor: Colors.white,
-                  child: const Icon(Icons.history, color: Colors.blue),
                 ),
               ],
             ),
@@ -383,15 +398,16 @@ class _MapPageState extends State<MapPage> {
 }
 
 // ---- 客户标记底部面板 ----
-
 class _CustomerMarkerSheet extends StatelessWidget {
   final Map<String, dynamic> customer;
-  final Position? currentPosition;
-  final Future<void> Function(Map<String, dynamic>) onVisit;
+  final double? lat;
+  final double? lng;
+  final void Function(Map<String, dynamic> customer) onVisit;
 
   const _CustomerMarkerSheet({
     required this.customer,
-    required this.currentPosition,
+    required this.lat,
+    required this.lng,
     required this.onVisit,
   });
 
@@ -400,107 +416,33 @@ class _CustomerMarkerSheet extends StatelessWidget {
     final name = customer['name'] as String? ?? '';
     final phone = customer['phone'] as String? ?? '';
     final address = customer['address'] as String? ?? '';
-    final lat = (customer['lat'] as num?)?.toDouble();
-    final lng = (customer['lng'] as num?)?.toDouble();
 
     return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).padding.bottom + 16,
-      ),
+      padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 拖拽指示条
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
+          Text(name,
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          if (phone.isNotEmpty)
+            Text('📞 $phone',
+                style: const TextStyle(color: Colors.grey)),
+          if (address.isNotEmpty)
+            Text('📍 $address',
+                style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 16),
-
-          // 客户名称
-          Row(
-            children: [
-              const Icon(Icons.business, color: Colors.blue, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  name,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 电话
-          if (phone.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.phone, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(phone, style: const TextStyle(fontSize: 15)),
-              ],
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          // 地址
-          if (address.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(address, style: const TextStyle(fontSize: 14)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          // 坐标
-          if (lat != null && lng != null) ...[
-            Row(
-              children: [
-                const Icon(Icons.map, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(
-                  '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          // 拜访按钮
           SizedBox(
             width: double.infinity,
-            height: 48,
-            child: FilledButton.icon(
-              onPressed: currentPosition != null
+            child: ElevatedButton.icon(
+              onPressed: lat != null
                   ? () => onVisit(customer)
                   : null,
-              icon: const Icon(Icons.assignment),
+              icon: const Icon(Icons.how_to_reg),
               label: Text(
-                currentPosition != null ? '记录拜访' : '等待定位...',
-                style: const TextStyle(fontSize: 16),
-              ),
-              style: FilledButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
+                  lat != null ? '记录拜访' : '等待定位...'),
             ),
           ),
         ],

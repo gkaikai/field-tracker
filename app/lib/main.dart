@@ -26,6 +26,9 @@ void main() async {
   final authService = AuthService();
   final isLoggedIn = await authService.restoreSession();
 
+  // 初始化高德定位SDK（隐私合规+API Key）
+  LocationService.initSdk();
+
   // 注册WorkManager周期性定位任务
   try {
     registerPeriodicLocationTask();
@@ -36,45 +39,51 @@ void main() async {
   runApp(FieldTrackerApp(isLoggedIn: isLoggedIn));
 }
 
-class FieldTrackerApp extends StatelessWidget {
+class FieldTrackerApp extends StatefulWidget {
   final bool isLoggedIn;
 
   const FieldTrackerApp({super.key, required this.isLoggedIn});
 
   @override
-  Widget build(BuildContext context) {
-    // 启动时检查更新
-    if (isLoggedIn) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkUpdate(context);
-      });
-    }
+  State<FieldTrackerApp> createState() => _FieldTrackerAppState();
+}
 
+class _FieldTrackerAppState extends State<FieldTrackerApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // 等框架构建完成后检查更新
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdate();
+    });
+  }
+
+  Future<void> _checkUpdate() async {
+    try {
+      final updateInfo = await UpdateService.checkForUpdate();
+      if (updateInfo != null && _navigatorKey.currentContext != null) {
+        await UpdateService.showUpdateDialog(
+            _navigatorKey.currentContext!, updateInfo);
+      }
+    } catch (e) {
+      debugPrint('[Update] 检查更新异常: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: '外勤定位',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: Colors.blue,
         useMaterial3: true,
+        brightness: Brightness.light,
       ),
-      initialRoute: isLoggedIn ? '/home' : '/login',
-      routes: {
-        '/login': (context) => const LoginPage(),
-        '/home': (context) => const HomePage(),
-        '/permission': (context) => const PermissionGuidePage(),
-      },
+      home: widget.isLoggedIn ? const HomePage() : const LoginPage(),
     );
-  }
-}
-
-/// 检查新版本
-Future<void> _checkUpdate(BuildContext context) async {
-  try {
-    final updateInfo = await UpdateService.checkForUpdate();
-    if (updateInfo != null && context.mounted) {
-      await UpdateService.showUpdateDialog(context, updateInfo);
-    }
-  } catch (e) {
-    debugPrint('[Update] 检查更新异常: $e');
   }
 }
