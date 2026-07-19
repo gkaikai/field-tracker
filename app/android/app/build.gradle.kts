@@ -43,6 +43,12 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
+
+    // 解决旧AGP + 高德SDK的Dexing兼容性问题
+    dexOptions {
+        preDexLibraries = false
+        javaMaxHeapSize = "4g"
+    }
 }
 
 kotlin {
@@ -57,7 +63,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    // 高德地图 SDK（插件用 compileOnly，需宿主应用提供）
-    implementation("com.amap.api:3dmap:8.1.0")
-    implementation("com.amap.api:location:5.6.0")
+    // 高德地图 SDK 由 Flutter 插件引入，无需在宿主重复声明
 }
