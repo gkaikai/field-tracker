@@ -13,35 +13,43 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 
 // 服务端地址（从环境配置同步）
 const String _serverBaseUrl = 'https://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com';
 
+/// 初始化通知插件（用于创建通知渠道）
+final FlutterLocalNotificationsPlugin _notifications =
+    FlutterLocalNotificationsPlugin();
+
 /// 初始化后台定位服务
 Future<void> initializeBackgroundService() async {
+  // 1. 先创建Android通知渠道（必须！否则闪退）
+  const androidSettings =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  await _notifications.initialize(const InitializationSettings(
+    android: androidSettings,
+  ));
+
+  // 2. 配置后台服务
   final service = FlutterBackgroundService();
 
   await service.configure(
     androidConfiguration: AndroidConfiguration(
-      // 每次启动时自动重启
       autoStart: false,
       autoStartOnBoot: false,
-      // 前台服务标识
-      notificationChannelId: 'location_tracking_channel',
+      notificationChannelId: AppConfig.notificationChannelId,
       initialNotificationContent: '正在采集位置信息...',
       initialNotificationTitle: '外勤定位',
-      // 启动后是否显示通知
       foregroundServiceNotificationId: 888,
-      // 前台服务类型（Android 14+ 需要）
       foregroundServiceTypes: [AndroidForegroundType.location],
-      // 回调函数
       onStart: onStart,
-      // 是否在前台服务中运行
       isForegroundMode: true,
     ),
     iosConfiguration: IosConfiguration(

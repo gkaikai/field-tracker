@@ -7,8 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../config/amap_key.dart';
 import '../services/location_service.dart';
 import '../services/attendance_service.dart';
@@ -91,18 +89,6 @@ class _MapPageState extends State<MapPage> {
     if (!started && mounted) {
       setState(() => _statusText = '定位启动失败，请在设置中开启定位权限和GPS');
     }
-
-    // 启动后台前台服务（息屏保活）
-    try {
-      final service = FlutterBackgroundService();
-      // 将login token传给后台服务
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token != null) {
-        service.startService();
-        service.invoke('setAsForeground');
-      }
-    } catch (_) {}
   }
 
   void _locateMe() {
