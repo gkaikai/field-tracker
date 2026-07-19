@@ -79,6 +79,7 @@ import reportRoutes from './routes/report';
 import customerRoutes from './routes/customer';
 import approvalRoutes from './routes/approval';
 import orgRoutes from './routes/org';
+import geocodeRoutes from './routes/geocode';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
@@ -90,6 +91,7 @@ app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/customers', customerRoutes);
 app.use('/api/v1/approvals', approvalRoutes);
 app.use('/api/v1/org', orgRoutes);
+app.use('/api/v1/geocode', geocodeRoutes);
 
 // 提供静态文件服务（管理后台）
 app.use(express.static('public'));

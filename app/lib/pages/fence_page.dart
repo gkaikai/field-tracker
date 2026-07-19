@@ -8,6 +8,7 @@ import 'package:amap_flutter_base/amap_flutter_base.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/location_service.dart';
 
 class FencePage extends StatefulWidget {
   const FencePage({super.key});
@@ -50,6 +51,12 @@ class _FencePageState extends State<FencePage>
   final _searchCtrl = TextEditingController();
   bool _searchLoading = false;
 
+  // 地图初始位置
+  CameraPosition _initialCameraPos = const CameraPosition(
+    target: LatLng(22.5431, 114.0579),
+    zoom: 14,
+  );
+
   bool get _isAdmin => _auth.role == 'admin';
 
   @override
@@ -62,6 +69,22 @@ class _FencePageState extends State<FencePage>
     _loadFences();
     _loadEvents();
     _startEventsAutoRefresh();
+    _initLocation();
+  }
+
+  /// 初始化地图位置到当前用户所在位置
+  Future<void> _initLocation() async {
+    final loc = LocationService();
+    final lat = loc.currentLat;
+    final lng = loc.currentLng;
+    if (lat != null && lng != null) {
+      setState(() {
+        _initialCameraPos = CameraPosition(
+          target: LatLng(lat, lng),
+          zoom: 15,
+        );
+      });
+    }
   }
 
   @override
@@ -162,7 +185,7 @@ class _FencePageState extends State<FencePage>
     }
   }
 
-  /// 地址搜索 - 调用高德地图地理编码API
+  /// 地址搜索 - 通过服务端代理（兼容鸿蒙）
   Future<void> _searchAddress() async {
     final keyword = _searchCtrl.text.trim();
     if (keyword.isEmpty) return;
@@ -170,27 +193,35 @@ class _FencePageState extends State<FencePage>
     try {
       final dio = Dio();
       final resp = await dio.get(
-        'https://restapi.amap.com/v3/geocode/geo',
-        queryParameters: {
-          'key': '0e00439a3a2b04282e78083ea7a9b19d',
-          'address': keyword,
-          'output': 'JSON',
-        },
+        '${AMapConfig.serverBaseUrl}/api/v1/geocode/search',
+        queryParameters: {'address': keyword},
       );
-      final geocodes = resp.data['geocodes'] as List?;
-      if (geocodes == null || geocodes.isEmpty) {
+
+      if (resp.statusCode != 200) {
+        throw Exception('服务异常: ${resp.statusCode}');
+      }
+
+      final data = resp.data;
+      if (data['success'] != true) {
+        throw Exception(data['message'] ?? '搜索失败');
+      }
+
+      final results = data['results'] as List? ?? [];
+      if (results.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('未找到该地址'), backgroundColor: Colors.orange));
+            const SnackBar(
+                content: Text('未找到该地址'),
+                backgroundColor: Colors.orange));
         }
         return;
       }
-      final location = geocodes[0]['location'] as String? ?? '';
-      final parts = location.split(',');
-      if (parts.length != 2) throw Exception('坐标格式错误');
-      final lng = double.parse(parts[0]);
-      final lat = double.parse(parts[1]);
-      final address = geocodes[0]['formattedAddress'] as String? ?? keyword;
+
+      final first = results[0] as Map<String, dynamic>;
+      final lat = (first['lat'] as num).toDouble();
+      final lng = (first['lng'] as num).toDouble();
+      final address = first['address'] as String? ?? keyword;
+
       if (mounted) {
         setState(() {
           if (_isCircleMode) {
@@ -203,12 +234,16 @@ class _FencePageState extends State<FencePage>
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已定位到: $address'), backgroundColor: Colors.green));
+          SnackBar(
+              content: Text('已定位到: $address'),
+              backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('搜索失败: $e'), backgroundColor: Colors.red));
+          SnackBar(
+              content: Text('搜索失败: $e'),
+              backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _searchLoading = false);
@@ -979,7 +1014,7 @@ class _FencePageState extends State<FencePage>
     }
 
     return AMapWidget(
-      apiKey: const AMapApiKey(
+      apiKey: AMapApiKey(
         androidKey: AMapConfig.androidKey,
         iosKey: AMapConfig.iosKey,
       ),
@@ -988,10 +1023,7 @@ class _FencePageState extends State<FencePage>
         hasShow: true,
         hasAgree: true,
       ),
-      initialCameraPosition: const CameraPosition(
-        target: LatLng(22.5431, 114.0579), // 深圳
-        zoom: 14,
-      ),
+      initialCameraPosition: _initialCameraPos,
       onTap: _isCircleMode ? _onCircleMapTap : _onPolygonMapTap,
       markers: markers,
       polylines: polylines,
