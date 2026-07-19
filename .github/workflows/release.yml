@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -41,16 +41,12 @@ jobs:
         id: version
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: 准备更新日志
-        run: |
-          git tag -l '${{ steps.version.outputs.tag }}' --format='%(contents:body)' > /tmp/changelog.txt
-
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: 外勤定位APP ${{ steps.version.outputs.tag }}
-          body_path: /tmp/changelog.txt
+          body: ${{ github.event.head_commit.message }}
           files: |
             app/build/app/outputs/flutter-apk/app-release.apk
           draft: false

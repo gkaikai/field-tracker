@@ -11,8 +11,8 @@ class AMapConfig {
   /// - 模拟器/电脑端: http://localhost:3000
   /// - 真机同一WiFi:   http://<电脑IP>:3000
   /// - 生产服务器:      https://your-domain.com
-  static const String serverBaseUrl = 'https://4718d3fddcd38320-123-123-97-213.serveousercontent.com';
-  static const String wsUrl = 'wss://4718d3fddcd38320-123-123-97-213.serveousercontent.com/ws/location';
+  static const String serverBaseUrl = 'https://f8325e03e04d6c3b-123-123-97-213.serveousercontent.com';
+  static const String wsUrl = 'wss://f8325e03e04d6c3b-123-123-97-213.serveousercontent.com/ws/location';
 
   /// 定位上报参数
   static const int uploadBatchSize = 10;

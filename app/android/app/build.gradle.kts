@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android") version "1.9.22"
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -18,7 +18,8 @@ val flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "
 
 android {
     namespace = "com.fieldtracker.app"
-    compileSdk = 34
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -42,12 +43,6 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-
-    // 解决旧AGP + 高德SDK的Dexing兼容性问题
-    dexOptions {
-        preDexLibraries = false
-        javaMaxHeapSize = "4g"
-    }
 }
 
 kotlin {
@@ -62,5 +57,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    // 高德地图 SDK 由 Flutter 插件引入，无需在宿主重复声明
+    // 高德地图 SDK（插件用compileOnly，宿主必须提供implementation）
+    implementation("com.amap.api:3dmap:8.1.0")
+    implementation("com.amap.api:location:5.6.0")
 }
