@@ -65,5 +65,12 @@
                 tools:node="remove" />
         </provider>
 
+        <!-- 原生定位前台服务（手写，不依赖flutter_background_service） -->
+        <service
+            android:name="com.fieldtracker.app.LocationForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false"
+            android:enabled="true" />
+
     </application>
 </manifest>

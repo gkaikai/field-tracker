@@ -60,4 +60,6 @@ dependencies {
     // 高德地图 SDK（插件用compileOnly，宿主必须提供implementation）
     implementation("com.amap.api:3dmap:8.1.0")
     implementation("com.amap.api:location:5.6.0")
+    // Google Play Services 原生定位（FusedLocationProviderClient）
+    implementation("com.google.android.gms:play-services-location:21.2.0")
 }

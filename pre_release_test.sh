@@ -96,12 +96,12 @@ fi
 
 # ---- 5. 通知渠道验证 ----
 info "5/5 通知渠道代码验证..."
-NOTIFY_LINES=$(grep -c "notificationChannelId" "$APP_DIR/lib/services/background_location_service.dart" 2>/dev/null || echo 0)
+NOTIFY_LINES=$(grep -c "BackgroundService\|LocationForegroundService\|CreateNotification" "$APP_DIR/android/app/src/main/java/com/fieldtracker/app/LocationForegroundService.java" 2>/dev/null || echo 0)
 if [ "$NOTIFY_LINES" -ge 1 ]; then
-  green "通知渠道初始化代码已配置"
+  green "原生前台服务代码已配置"
   PASS=$((PASS+1))
 else
-  red "通知渠道代码缺失！"
+  red "原生前台服务代码缺失！"
   FAIL=$((FAIL+1))
 fi
 

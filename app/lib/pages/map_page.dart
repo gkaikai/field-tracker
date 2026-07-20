@@ -8,6 +8,7 @@ import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
 import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
+import '../services/background_location_service.dart';
 import '../services/location_service.dart';
 import '../services/attendance_service.dart';
 import '../services/api_service.dart';
@@ -88,6 +89,12 @@ class _MapPageState extends State<MapPage> {
     final started = await loc.startTracking();
     if (!started && mounted) {
       setState(() => _statusText = '定位启动失败，请在设置中开启定位权限和GPS');
+    }
+
+    // 启动原生前台定位服务（息屏保活）
+    if (started) {
+      final bgStarted = await startBackgroundLocationService();
+      debugPrint('[地图] 后台前台服务启动: ${bgStarted ? "成功" : "失败"}');
     }
   }
 
