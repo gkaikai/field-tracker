@@ -48,7 +48,7 @@ class _CustomerPageState extends State<CustomerPage> {
           content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: nc, decoration: const InputDecoration(labelText: '客户名称 *', border: OutlineInputBorder()), autofocus: true),
             const SizedBox(height: 8),
-            TextField(controller: pc, decoration: const InputDecoration(labelText: '联系电话', border: OutlineInputBorder()), keyboardType: TextInputType.phone),
+            TextField(controller: pc, decoration: const InputDecoration(labelText: '联系电话', border: OutlineInputBorder(), helperText: '支持国际号码'), keyboardType: TextInputType.phone, maxLength: 20),
             const SizedBox(height: 8),
             TextField(controller: ac, decoration: const InputDecoration(labelText: '地址', border: OutlineInputBorder())),
             const SizedBox(height: 8),

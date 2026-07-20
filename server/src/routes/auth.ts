@@ -21,8 +21,7 @@ router.post('/login',
   validate([
     body('phone')
       .notEmpty().withMessage('手机号不能为空')
-      .matches(/^\d{11}$/).withMessage('手机号必须是11位数字')
-      .matches(/^1\d{10}$/).withMessage('手机号必须以1开头'),
+      .matches(/^\+?\d{5,20}$/).withMessage('手机号格式不正确（5-20位数字，支持国际号）'),
     body('password')
       .notEmpty().withMessage('密码不能为空')
       .isLength({ min: 6 }).withMessage('密码长度不能少于6位'),
@@ -190,9 +189,7 @@ router.post('/register',
   validate([
     body('phone')
       .notEmpty().withMessage('手机号不能为空')
-      .matches(/^\d{11}$/).withMessage('手机号必须是11位数字')
-      .matches(/^1\d{10}$/).withMessage('手机号必须以1开头')
-      .matches(/^1(3\d|4[5-9]|5[0-35-9]|6[2567]|7[0-8]|8\d|9[0-35-9])\d{8}$/).withMessage('手机号号段无效（如13x/15x/18x等）'),
+      .matches(/^\+?\d{5,20}$/).withMessage('手机号格式不正确（5-20位数字，支持国际号）'),
     body('password').notEmpty().isLength({ min: 6, max: 50 }).withMessage('密码长度6~50位'),
     body('name').optional().isLength({ max: 50 }).withMessage('姓名不超过50字'),
   ]),
