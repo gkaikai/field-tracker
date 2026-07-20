@@ -75,21 +75,15 @@ if [ -z "$TOKEN" ]; then
   red "登录API失败——token为空"
   FAIL=$((FAIL+1))
 else
-  # 上报测试
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TUNNEL_URL/api/v1/location/report" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $TOKEN" \
-    -d "{\"lng\":114.0579,\"lat\":22.5431,\"accuracy\":5,\"speed\":0,\"timestamp\":$(date +%s000)}")
+  # 只读API验证（不写入任何测试数据，避免污染用户轨迹）
+  ME_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$TUNNEL_URL/api/v1/auth/me" \
+    -H "Authorization: Bearer $TOKEN")
   
-  # 轨迹查询
-  TRACK_RESULT=$(curl -s "$TUNNEL_URL/api/v1/location/track/-1?date=$(date +%Y-%m-%d)" \
-    -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json;d=json.load(sys.stdin);print(f\"{d.get('source','?')} {len(d.get('points',[]))}pts\")" 2>/dev/null)
-  
-  if [ "$STATUS" = "201" ]; then
-    green "API正常 — 上报✅ 轨迹✅ ($TRACK_RESULT)"
+  if [ "$ME_CODE" = "200" ]; then
+    green "API正常 — 登录✅ 身份验证✅"
     PASS=$((PASS+1))
   else
-    red "上报API失败 (HTTP $STATUS)"
+    red "身份验证API失败 (HTTP $ME_CODE)"
     FAIL=$((FAIL+1))
   fi
 fi
