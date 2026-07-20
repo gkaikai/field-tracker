@@ -13,9 +13,9 @@ class AMapConfig {
 
   /// WebSocket/HTTP 后端地址
   /// - 模拟器/电脑端: http://localhost:3000
-  /// - 手机端(serveo隧道): https://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com
-  static const String serverBaseUrl = 'https://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com';
-  static const String wsUrl = 'wss://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com/ws/location';
+  /// - 手机端(serveo隧道): https://276dd758cce0eb01-123-123-97-213.serveousercontent.com
+  static const String serverBaseUrl = 'https://276dd758cce0eb01-123-123-97-213.serveousercontent.com';
+  static const String wsUrl = 'wss://276dd758cce0eb01-123-123-97-213.serveousercontent.com/ws/location';
 
   /// 定位上报参数
   static const int uploadBatchSize = 10;

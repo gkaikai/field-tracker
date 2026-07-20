@@ -8,7 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$SCRIPT_DIR/app"
 SERVER_DIR="$SCRIPT_DIR/server"
-TUNNEL_URL="https://f3d5eeda8ddeb319-123-123-97-213.serveousercontent.com"
+TUNNEL_URL="https://276dd758cce0eb01-123-123-97-213.serveousercontent.com"
 PASS=0
 FAIL=0
 
