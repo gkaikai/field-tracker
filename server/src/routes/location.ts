@@ -3,6 +3,7 @@ import { body, query } from 'express-validator';
 import { authMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
+import { haversineKm } from '../utils/geo';
 
 const router = Router();
 
@@ -226,6 +227,32 @@ router.get('/track/:userId',
 
     // 按时间排序
     all.sort((a, b) => a.timestamp - b.timestamp);
+
+    // 3. 中值滤波：移除孤立漂移点
+    // 如果一个点距离前后点都>2km，但前后点直接连线<3km，则判定为漂移
+    if (all.length > 3) {
+      const filtered: TrackPoint[] = [all[0]];
+      const MAX_DRIFT_KM = 1.5;
+      const MAX_SKIP_KM = 2.5;
+
+      for (let i = 1; i < all.length - 1; i++) {
+        const prev = all[i - 1];
+        const curr = all[i];
+        const next = all[i + 1];
+
+        const d1 = haversineKm(prev.lat, prev.lng, curr.lat, curr.lng);
+        const d2 = haversineKm(curr.lat, curr.lng, next.lat, next.lng);
+        const dSkip = haversineKm(prev.lat, prev.lng, next.lat, next.lng);
+
+        // 孤立漂移点：距前后都远，但前后很近
+        if (d1 > MAX_DRIFT_KM && d2 > MAX_DRIFT_KM && dSkip < MAX_SKIP_KM) {
+          continue;  // 跳过漂移点
+        }
+        filtered.push(curr);
+      }
+      filtered.push(all[all.length - 1]);
+      all = filtered;
+    }
 
     res.json({
       userId: targetUserId,

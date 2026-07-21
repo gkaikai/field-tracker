@@ -1,58 +1,104 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:workmanager/workmanager.dart';
 import '../config/app_config.dart';
 import 'api_service.dart';
+import 'motion_detector.dart';
 import '../utils/geo_convert.dart';
 
-/// 定位服务 — 使用 Geolocator（兼容HarmonyOS）+ 高精度GPS
+/// 定位服务 v2 — 三信号融合版
+///
+/// 加速度传感器 + GPS速度 + GPS位置 → 轨迹平滑、自适应频率、静止降频
 ///
 /// 改进（v2）：
-///   - 位置缓存队列（去噪 + 平滑）
-///   - 高频上报（每15秒 或 缓存满5条即上报）
-///   - 精度校验（accuracy>100m剔除）
-///   - 简单滑动平均滤波
+///   - 活动状态机（MOVING/UNCERTAIN/STATIONARY）
+///   - 加速度传感器辅助判断静止与漂移
+///   - 自适应上传频率（12秒/30秒/5分钟）
+///   - GPS丢失时不产生假点，标记精度异常
+///   - 缓冲平均 + 3点中值滤波 + 加速度验证三重防漂移
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
 
   final ApiService _api = ApiService();
+  final MotionDetector _motion = MotionDetector();
 
-  // 当前位置
+  // ─── 当前位置 ───
   Position? _currentPosition;
+  Position? _lastKnownPosition; // GPS丢失时保留的最后有效位置
+  final List<Position> _recentPositions = [];
   StreamSubscription<Position>? _positionStream;
   Timer? _uploadTimer;
+  Timer? _motionCheckTimer; // 定期检查静止基准点位移
   bool _isRunning = false;
 
-  // 位置缓存队列（用于去噪 + 平滑 + 批量上报）
+  // ─── 位置缓存队列 ───
   final Queue<_PositionRecord> _positionBuffer = Queue();
-  static const int _maxBufferSize = 5;       // 缓存满5条立即上报
-  static const int _uploadIntervalSec = 12;   // 每12秒上报一次
-  static const double _maxAcceptableAccuracy = 100.0; // 精度超过100米跳过
+  static const int _buffersMoving = 3;     // MOVING: 3条平均
+  static const int _buffersUncertain = 3;
+  static const int _buffersStationary = 1;  // 静止: 单点
 
-  // 性能统计
+  // ─── GPS丢失标记 ───
+  bool _gpsLost = false;
+  DateTime? _gpsLostSince;
+
+  // ─── 性能统计 ───
   int _totalPositions = 0;
   int _rejectedPositions = 0;
   double _bestAccuracy = 999;
 
-  // 回调
+  // ─── 回调 ───
   void Function(double lat, double lng, double accuracy, double? speed)? onLocationChanged;
   void Function(String error)? onError;
+  void Function(String stateName, int interval)? onStateChanged; // 状态/频率变化回调
 
   LocationService._internal();
 
+  // ─── Haversine 公式计算两点距离（km） ───
+  double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const R = 6371.0;
+    final dLat = (lat2 - lat1) * pi / 180;
+    final dLng = (lng2 - lng1) * pi / 180;
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1 * pi / 180) * cos(lat2 * pi / 180) *
+        sin(dLng / 2) * sin(dLng / 2);
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a));
+  }
+
+  double _haversineMeters(double lat1, double lng1, double lat2, double lng2) {
+    return _haversineKm(lat1, lng1, lat2, lng2) * 1000;
+  }
+
+  // ─── 访问器 ───
   double? get currentLat => _currentPosition?.latitude;
   double? get currentLng => _currentPosition?.longitude;
   double? get currentAccuracy => _currentPosition?.accuracy;
+  Position? get currentPosition => _currentPosition;
   bool get isRunning => _isRunning;
   int get totalPositions => _totalPositions;
   int get rejectedPositions => _rejectedPositions;
   double get bestAccuracy => _bestAccuracy;
+  MotionState get motionState => _motion.state;
+  bool get isGpsLost => _gpsLost;
 
-  /// 启动持续定位
+  /// 当前使用的缓冲区大小
+  int get _currentBufferSize {
+    switch (_motion.state) {
+      case MotionState.moving:
+        return _buffersMoving;
+      case MotionState.uncertain:
+        return _buffersUncertain;
+      case MotionState.stationary:
+        return _buffersStationary;
+    }
+  }
+
+  // ============================================================
+  //  启动/停止定位
+  // ============================================================
+
   Future<bool> startTracking() async {
     if (_isRunning) return true;
 
@@ -74,113 +120,203 @@ class LocationService {
       return false;
     }
 
-    // 3. 获取一次高精度GPS位置（确保第一次定位就有数据）
+    // 3. 启动加速度传感器
+    await _motion.start();
+
+    // 4. 监听状态变化 → 调整上传定时器
+    _motion.onStateChanged = (state) {
+      _rescheduleUploadTimer();
+      onStateChanged?.call(_motion.stateName, _motion.uploadInterval);
+    };
+
+    // 5. 获取一次高精度GPS位置
     try {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 15),
       );
-      if (pos != null) {
-        // WGS-84 → GCJ-02 转换
+      if (pos != null && pos.accuracy < AppConfig.maxAcceptableAccuracy) {
         final (gcjLat, gcjLng) = wgs84ToGcj02(pos.latitude, pos.longitude);
-        final converted = Position(
-          latitude: gcjLat,
-          longitude: gcjLng,
-          timestamp: pos.timestamp,
-          accuracy: pos.accuracy,
-          altitude: pos.altitude,
-          heading: pos.heading,
-          speed: pos.speed,
-          speedAccuracy: pos.speedAccuracy,
-          altitudeAccuracy: pos.altitudeAccuracy,
-          headingAccuracy: pos.headingAccuracy,
-        );
-        _currentPosition = converted;
-        _addToBuffer(converted);
+        _currentPosition = _buildConvertedPosition(pos, gcjLat, gcjLng);
+        _lastKnownPosition = _currentPosition;
+        _motion.resetStillBase(_currentPosition!.latitude, _currentPosition!.longitude);
+        _gpsLost = false;
       }
-    } catch (e) {
-      // 首次定位失败不阻止继续
-    }
+    } catch (_) {}
 
-    // 4. 持续监听位置变化（精度最高，距离过滤0米）
+    // 6. 持续监听位置变化
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,       // 每一米都触发更新
-        timeLimit: null,
+        distanceFilter: 0,
       ),
     ).listen(
-      (Position position) {
-        _totalPositions++;
-
-        // 精度校验
-        if (position.accuracy > _maxAcceptableAccuracy) {
-          _rejectedPositions++;
-          return; // 精度太差，跳过
-        }
-
-        // WGS-84 → GCJ-02 转换
-        final (gcjLat, gcjLng) = wgs84ToGcj02(position.latitude, position.longitude);
-        final converted = Position(
-          latitude: gcjLat,
-          longitude: gcjLng,
-          timestamp: position.timestamp,
-          accuracy: position.accuracy,
-          altitude: position.altitude,
-          heading: position.heading,
-          speed: position.speed,
-          speedAccuracy: position.speedAccuracy,
-          altitudeAccuracy: position.altitudeAccuracy,
-          headingAccuracy: position.headingAccuracy,
-        );
-
-        // 更新最佳精度记录
-        if (converted.accuracy < _bestAccuracy) {
-          _bestAccuracy = converted.accuracy;
-        }
-
-        _currentPosition = converted;
-        _addToBuffer(converted);
-
-        // 对外回调
-        onLocationChanged?.call(
-          converted.latitude,
-          converted.longitude,
-          converted.accuracy,
-          converted.speed,
-        );
-      },
+      _onGpsPosition,
       onError: (error) {
         onError?.call('定位流错误: $error');
       },
     );
 
-    // 5. 定时上报位置（每12秒）
-    _uploadTimer = Timer.periodic(
-      const Duration(seconds: _uploadIntervalSec),
-      (_) => _flushBuffer(),
+    // 7. 启动上传定时器（初始MOVING频率）
+    _scheduleUploadTimer();
+
+    // 8. 定期检查累计位移（静止时确保基准点准确）
+    _motionCheckTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _checkMotionState(),
     );
 
     _isRunning = true;
     return true;
   }
 
-  /// 停止定位
   void stopTracking() {
     _positionStream?.cancel();
     _positionStream = null;
     _uploadTimer?.cancel();
     _uploadTimer = null;
+    _motionCheckTimer?.cancel();
+    _motionCheckTimer = null;
     _positionBuffer.clear();
+    _motion.stop();
+    _recentPositions.clear();
     _isRunning = false;
     _currentPosition = null;
+    _gpsLost = false;
+    _gpsLostSince = null;
+    _lastKnownPosition = null;
   }
 
-  // ===================================================================
-  //  位置缓存 & 上报
-  // ===================================================================
+  // ============================================================
+  //  GPS数据处理
+  // ============================================================
 
-  /// 将位置加入缓存（满maxBufferSize自动上报）
+  void _onGpsPosition(Position position) {
+    try {
+      _totalPositions++;
+
+      // 精度校验
+      if (position.accuracy > AppConfig.maxAcceptableAccuracy) {
+        _rejectedPositions++;
+        _onGpsLoss(position);
+        return;
+      }
+
+      // GPS恢复
+      if (_gpsLost) {
+        _gpsLost = false;
+        _gpsLostSince = null;
+      }
+
+      // WGS-84 → GCJ-02 转换
+      final (gcjLat, gcjLng) = wgs84ToGcj02(position.latitude, position.longitude);
+      final converted = _buildConvertedPosition(position, gcjLat, gcjLng);
+
+      if (converted.accuracy < _bestAccuracy) {
+        _bestAccuracy = converted.accuracy;
+      }
+
+      _currentPosition = converted;
+      _lastKnownPosition = converted;
+
+      // ─── 3点滑动中值滤波（漂移检测） ───
+      _recentPositions.add(converted);
+      if (_recentPositions.length > 3) _recentPositions.removeAt(0);
+
+      if (_recentPositions.length == 3) {
+        final p2 = _recentPositions[1];
+
+        // 检查P2是否为孤立漂移点
+        if (_isDriftPoint(_recentPositions[0], p2, _recentPositions[2])) {
+          _rejectedPositions++;
+          return;
+        }
+      }
+
+      // 加入缓冲区
+      _addToBuffer(converted);
+
+      // 更新活动状态机
+      _updateMotionState(converted);
+
+      // 对外回调
+      onLocationChanged?.call(
+        converted.latitude,
+        converted.longitude,
+        converted.accuracy,
+        converted.speed,
+      );
+    } catch (e) {
+      debugPrint('[LocationService] GPS数据处理异常: $e');
+    }
+  }
+
+  /// GPS精度超标时处理 — 记录丢失状态但不产生假点
+  void _onGpsLoss(Position lastPosition) {
+    if (!_gpsLost) {
+      _gpsLost = true;
+      _gpsLostSince = DateTime.now();
+
+      // 保持最后已知位置，但标记精度异常
+      if (_currentPosition != null) {
+        // 不产生新点，只标记状态
+        onError?.call('GPS信号弱，定位精度低');
+      }
+    }
+  }
+
+  /// 判断是否为孤立漂移点
+  bool _isDriftPoint(Position p1, Position p2, Position p3) {
+    final d12 = _haversineKm(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+    final d23 = _haversineKm(p2.latitude, p2.longitude, p3.latitude, p3.longitude);
+    final d13 = _haversineKm(p1.latitude, p1.longitude, p3.latitude, p3.longitude);
+    return d12 > AppConfig.driftMaxDistKm &&
+           d23 > AppConfig.driftMaxDistKm &&
+           d13 < AppConfig.driftSkipDistKm;
+  }
+
+  /// 从缓冲区移除指定坐标的点
+  void _removeFromBuffer(double lat, double lng) {
+    _positionBuffer.removeWhere((r) =>
+        (r.lat - lat).abs() < 0.001 &&
+        (r.lng - lng).abs() < 0.001);
+  }
+
+  // ============================================================
+  //  活动状态机更新
+  // ============================================================
+
+  void _updateMotionState(Position pos) {
+    final displacement = _motion.calculateDisplacement(
+      pos.latitude, pos.longitude,
+    );
+    _motion.updateState(
+      speed: pos.speed,
+      cumulativeDisplacement: displacement,
+      currentLat: pos.latitude,
+      currentLng: pos.longitude,
+    );
+  }
+
+  /// 定期检查（不依赖GPS更新的场景）
+  void _checkMotionState() {
+    if (_currentPosition == null) return;
+    final displacement = _motion.calculateDisplacement(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+    );
+    _motion.updateState(
+      speed: _currentPosition!.speed,
+      cumulativeDisplacement: displacement,
+      currentLat: _currentPosition!.latitude,
+      currentLng: _currentPosition!.longitude,
+    );
+  }
+
+  // ============================================================
+  //  缓存 & 上报
+  // ============================================================
+
   void _addToBuffer(Position pos) {
     _positionBuffer.add(_PositionRecord(
       lat: pos.latitude,
@@ -190,49 +326,95 @@ class LocationService {
       timestamp: pos.timestamp.millisecondsSinceEpoch,
     ));
 
-    if (_positionBuffer.length >= _maxBufferSize) {
+    if (_positionBuffer.length >= _currentBufferSize) {
       _flushBuffer();
     }
   }
 
-  /// 刷新缓存（上报 + 清空）
   Future<void> _flushBuffer() async {
     if (_positionBuffer.isEmpty) return;
 
     final batch = _positionBuffer.toList();
     _positionBuffer.clear();
 
-    // 取最后一条作为"当前位置"
     final last = batch.last;
 
-    // 平滑处理取均值（消除GPS抖动）
-    final avgLat = batch.map((p) => p.lat).reduce((a, b) => a + b) / batch.length;
-    final avgLng = batch.map((p) => p.lng).reduce((a, b) => a + b) / batch.length;
-    final avgAccuracy = batch.map((p) => p.accuracy).reduce((a, b) => a + b) / batch.length;
+    if (batch.length == 1) {
+      // 静止模式：直接上报单点
+      try {
+        await _api.post(AppConfig.apiReportLocation, data: {
+          'lng': last.lng,
+          'lat': last.lat,
+          'accuracy': last.accuracy,
+          'speed': last.speed ?? 0,
+          'timestamp': last.timestamp,
+          'batch_size': 1,
+        });
+      } catch (_) {}
+    } else {
+      // 移动/不确定：取均值平滑
+      final avgLat = batch.map((p) => p.lat).reduce((a, b) => a + b) / batch.length;
+      final avgLng = batch.map((p) => p.lng).reduce((a, b) => a + b) / batch.length;
+      final avgAccuracy = batch.map((p) => p.accuracy).reduce((a, b) => a + b) / batch.length;
 
-    try {
-      await _api.post(AppConfig.apiReportLocation, data: {
-        'lng': avgLng,
-        'lat': avgLat,
-        'accuracy': avgAccuracy,
-        'speed': last.speed ?? 0,
-        'timestamp': last.timestamp,
-        'batch_size': batch.length,
-      });
-    } catch (_) {
-      // 网络失败静默处理
+      try {
+        await _api.post(AppConfig.apiReportLocation, data: {
+          'lng': avgLng,
+          'lat': avgLat,
+          'accuracy': avgAccuracy,
+          'speed': last.speed ?? 0,
+          'timestamp': last.timestamp,
+          'batch_size': batch.length,
+        });
+      } catch (_) {}
     }
 
-    // 围栏检测（用平滑后的坐标）
+    // 围栏检测
     try {
       await _api.post('/api/v1/fences/auto-check', data: {
-        'lat': avgLat,
-        'lng': avgLng,
+        'lat': _currentPosition?.latitude ?? last.lat,
+        'lng': _currentPosition?.longitude ?? last.lng,
       });
     } catch (_) {}
   }
 
-  /// 获取最新一次位置
+  // ============================================================
+  //  上传定时器管理
+  // ============================================================
+
+  void _rescheduleUploadTimer() {
+    _uploadTimer?.cancel();
+    _uploadTimer = null;
+    _scheduleUploadTimer();
+  }
+
+  void _scheduleUploadTimer() {
+    _uploadTimer?.cancel();
+    _uploadTimer = Timer.periodic(
+      Duration(seconds: _motion.uploadInterval),
+      (_) => _flushBuffer(),
+    );
+  }
+
+  // ============================================================
+  //  工具
+  // ============================================================
+
+  Position _buildConvertedPosition(Position pos, double gcjLat, double gcjLng) {
+    return Position(
+      latitude: gcjLat,
+      longitude: gcjLng,
+      timestamp: pos.timestamp,
+      accuracy: pos.accuracy,
+      altitude: pos.altitude,
+      heading: pos.heading,
+      speed: pos.speed,
+      speedAccuracy: pos.speedAccuracy,
+      altitudeAccuracy: pos.altitudeAccuracy,
+      headingAccuracy: pos.headingAccuracy,
+    );
+  }
+
   Future<Position?> getLastKnownPosition() async {
     try {
       final pos = await Geolocator.getLastKnownPosition();

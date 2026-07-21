@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:math' show cos, sin, pi;
 
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
@@ -32,6 +33,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
   AMapController? _mapController;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
+  Set<Polygon> _fencePolygons = {};
 
   // 轨迹统计
   double _totalDistanceKm = 0;
@@ -46,6 +48,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
   void initState() {
     super.initState();
     _loadTrack();
+    _loadFences();
   }
 
   Future<void> _loadTrack() async {
@@ -79,6 +82,64 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         _isLoading = false;
       });
     }
+  }
+
+  /// 加载电子围栏并渲染为红色多边形
+  Future<void> _loadFences() async {
+    try {
+      final resp = await _api.get('/api/v1/fences');
+      final List<dynamic> raw = resp.data is List
+          ? resp.data
+          : (resp.data['data'] ?? resp.data['fences'] ?? []);
+      final fences = <Polygon>{};
+      for (final f in raw) {
+        final fence = f as Map<String, dynamic>;
+        final shapeType = fence['shapeType'] as String? ?? 'circle';
+        if (shapeType == 'circle') {
+          final lat = fence['centerLat'] as num?;
+          final lng = fence['centerLng'] as num?;
+          final radius = fence['radiusMeters'] as num? ?? 300;
+          if (lat == null || lng == null) continue;
+          fences.add(Polygon(
+            points: _circlePolygonPoints(LatLng(lat.toDouble(), lng.toDouble()), radius.toDouble()),
+            strokeWidth: 3,
+            strokeColor: Colors.red,
+            fillColor: Colors.red.withOpacity(0.10),
+          ));
+        } else if (shapeType == 'polygon') {
+          final coords = fence['coordinates'] as List<dynamic>?;
+          if (coords == null || coords.length < 3) continue;
+          final pts = coords.map((c) {
+            if (c is Map<String, dynamic>) {
+              return LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble());
+            }
+            final cList = c as List<dynamic>;
+            return LatLng((cList[1] as num).toDouble(), (cList[0] as num).toDouble());
+          }).toList();
+          fences.add(Polygon(
+            points: pts,
+            strokeWidth: 3,
+            strokeColor: Colors.red,
+            fillColor: Colors.red.withOpacity(0.10),
+          ));
+        }
+      }
+      if (mounted) setState(() => _fencePolygons = fences);
+    } catch (_) {}
+  }
+
+  /// 生成近似圆形的多边形点
+  List<LatLng> _circlePolygonPoints(LatLng center, double radiusMeters) {
+    const n = 64;
+    const latPerM = 1.0 / 111320.0;
+    final lngPerM = 1.0 / (111320.0 * cos(center.latitude * pi / 180.0));
+    return List.generate(n, (i) {
+      final angle = 2 * pi * i / n;
+      return LatLng(
+        center.latitude + radiusMeters * cos(angle) * latPerM,
+        center.longitude + radiusMeters * sin(angle) * lngPerM,
+      );
+    });
   }
 
   /// Haversine 公式计算两点间距离（米）
@@ -641,6 +702,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                             },
                             polylines: _polylines,
                             markers: _markers,
+                            polygons: _fencePolygons,
                             compassEnabled: true,
                             scaleEnabled: true,
                             zoomGesturesEnabled: true,

@@ -28,6 +28,20 @@ export const ErrorCodes = {
   /** 无权限访问 */
   AUTH_FORBIDDEN: { code: '10009', message: '无权限访问' },
 
+  // ===== Captcha / SMS 模块 =====
+  /** 图形验证码错误 */
+  CAPTCHA_CODE_ERROR: { code: '10015', message: '验证码错误' },
+  /** 图形验证码已过期 */
+  CAPTCHA_EXPIRED: { code: '10016', message: '验证码已过期，请重新获取' },
+  /** 短信验证码错误 */
+  SMS_CODE_ERROR: { code: '10017', message: '短信验证码错误' },
+  /** 短信验证码已过期 */
+  SMS_CODE_EXPIRED: { code: '10018', message: '短信验证码已过期，请重新获取' },
+  /** 发送过于频繁 */
+  SMS_TOO_FREQUENT: { code: '10019', message: '发送过于频繁，请60秒后再试' },
+  /** 手机号格式不正确（需11位） */
+  PHONE_FORMAT_INVALID: { code: '10020', message: '手机号格式不正确，请输入11位手机号' },
+
   // ===== Location 模块 =====
   /** 经度超出范围 */
   LOC_LNG_INVALID: { code: '20001', message: '经度超出有效范围(-180~180)' },

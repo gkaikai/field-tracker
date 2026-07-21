@@ -1,15 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:field_tracker/utils/device_info.dart';
-import 'package:field_tracker/services/background_service.dart';
 import 'package:field_tracker/config/amap_key.dart';
+import 'package:field_tracker/config/app_config.dart';
 
 void main() {
-  group('AMapConfig', () {
-    test('serverBaseUrl uses localhost in dev', () {
-      expect(AMapConfig.serverBaseUrl, 'http://localhost:3000');
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
+  group('AppConfig', () {
+    test('baseUrl uses localhost in dev', () {
+      expect(AppConfig.baseUrl, 'http://localhost:3000');
     });
     test('WS URL matches', () {
-      expect(AMapConfig.wsUrl, 'ws://localhost:3000/ws/location');
+      expect(AppConfig.wsUrl, 'ws://localhost:3000/ws/location');
     });
     test('uploadBatchSize is positive', () {
       expect(AMapConfig.uploadBatchSize, greaterThan(0));
@@ -98,20 +103,13 @@ void main() {
     });
   });
 
-  group('BackgroundService — 初始状态', () {
-    test('未初始化时 isRunning 为 false', () {
-      final service = BackgroundService();
-      expect(service.isRunning, false);
-    });
-  });
-
   group('配置常量完整性', () {
     test('所有配置字段已定义', () {
       expect(AMapConfig.androidKey, isNotNull);
       expect(AMapConfig.iosKey, isNotNull);
-      expect(AMapConfig.serverBaseUrl, isNotEmpty);
-      expect(AMapConfig.wsUrl, isNotEmpty);
-      expect(AMapConfig.wsUrl, startsWith('ws://'));
+      expect(AppConfig.baseUrl, isNotEmpty);
+      expect(AppConfig.wsUrl, isNotEmpty);
+      expect(AppConfig.wsUrl, startsWith('ws://'));
     });
 
     test('batch size 与间隔值合理', () {

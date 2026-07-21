@@ -24,7 +24,7 @@ class _PhotoGalleryPageState extends State<PhotoGalleryPage> {
       final r = await dio.get('/api/v1/upload/photos',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       setState(() { _photos = r.data['photos'] ?? []; _loading = false; });
-    } catch (e) { setState(() => _loading = false); }
+    } catch (e) { debugPrint('加载照片列表失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载失败: $e'))); } }
   }
 
   @override

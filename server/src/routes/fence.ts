@@ -1,261 +1,283 @@
 import { Router, Request, Response } from 'express';
 import { body, query } from 'express-validator';
-import { authMiddleware, adminMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
+import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { pgPool } from '../config/database';
+import { AppError } from '../errors/AppError';
+import { haversineDistance, pointInPolygon } from '../utils/geo';
 
 const router = Router();
 router.use(authMiddleware);
 
 // ============================================================
-//  内存存储
+//  围栏接口（全部使用 PostgreSQL 持久化存储）
 // ============================================================
 
-interface Fence {
-  id: number;
-  name: string;
-  departmentId: string | null;
-  shapeType: string;
-  centerLat: number | null;
-  centerLng: number | null;
-  radiusMeters: number | null;
-  coordinates: any[] | null;
-  isActive: boolean;
-  createdBy: string;
-  createdAt: string;
+/** 将数据库行转换为前端围栏对象 */
+function formatFence(f: any) {
+  return {
+    id: f.id,
+    name: f.name,
+    departmentId: f.department_id,
+    shapeType: f.shape_type,
+    centerLat: f.center_lat,
+    centerLng: f.center_lng,
+    radiusMeters: f.radius_meters,
+    coordinates: f.polygon_points,
+    color: f.color,
+    description: f.description,
+    isActive: f.is_active,
+    createdBy: f.created_by,
+    createdAt: f.created_at,
+  };
 }
 
-let memFences: Fence[] = [];
-let memFenceIdSeq = 1;
-
-// 围栏事件
-interface FenceEvent {
-  id: number;
-  userId: string;
-  fenceId: number;
-  fenceName: string;
-  eventType: 'enter' | 'exit';
-  lat: number;
-  lng: number;
-  createdAt: string;
-}
-let memFenceEvents: FenceEvent[] = [];
-let memEventIdSeq = 1;
-
-// ============================================================
-//  GET 路由
-// ============================================================
-
-// GET /api/v1/fences — 围栏列表（管理员看全部，员工看本部门/未绑定的）
+// GET /api/v1/fences — 围栏列表
 router.get('/', async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
-  let fences = memFences.filter(f => f.isActive);
-  
-  // 非管理员只看自己部门的 + 未绑定部门的公共围栏
+
+  let query = `SELECT id, name, department_id, shape_type,
+                      center_lat, center_lng, radius_meters,
+                      polygon_points, is_active, color, description,
+                      created_by, created_at
+               FROM geo_fences WHERE is_active = true`;
+
+  const params: any[] = [];
+  // 非管理员只能看到自己部门或未绑定部门的围栏
   if (user.role !== 'admin') {
-    fences = fences.filter(f => 
-      !f.departmentId || f.departmentId === user.departmentId
-    );
+    query += ` AND (department_id IS NULL OR department_id = $1)`;
+    params.push(user.departmentId);
   }
-  
-  res.json(fences);
+  query += ' ORDER BY created_at DESC';
+
+  const result = await pgPool.query(query, params);
+  res.json(result.rows.map(formatFence));
 });
-
-// GET /api/v1/fences/check — 检测位置是否在围栏内
-router.get('/check',
-  validate([
-    query('lat').isFloat(),
-    query('lng').isFloat(),
-    query('fenceId').optional().isInt(),
-  ]),
-  async (req: Request, res: Response) => {
-    const lat = parseFloat(req.query.lat as string);
-    const lng = parseFloat(req.query.lng as string);
-    const fenceId = req.query.fenceId ? parseInt(req.query.fenceId as string) : null;
-
-    let fences = memFences.filter(f => f.isActive);
-    if (fenceId) fences = fences.filter(f => f.id === fenceId);
-
-    const results = fences.map(fence => {
-      let inside = false;
-      if (fence.shapeType === 'circle' && fence.centerLat && fence.centerLng) {
-        inside = haversineDistance(lat, lng, fence.centerLat, fence.centerLng) <= (fence.radiusMeters || 300);
-      } else if (fence.shapeType === 'polygon' && fence.coordinates && fence.coordinates.length >= 3) {
-        inside = pointInPolygon(lat, lng, fence.coordinates);
-      }
-      return { fenceId: fence.id, name: fence.name, inside };
-    });
-
-    res.json({ lat, lng, results });
-  },
-);
-
-// GET /api/v1/fences/events — 围栏事件
-router.get('/events', async (req: Request, res: Response) => {
-  const user = (req as any).user as JwtPayload;
-  let events = memFenceEvents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 200);
-  
-  // 管理员看所有事件，员工只看自己的
-  if (user.role !== 'admin') {
-    events = events.filter(e => e.userId === user.userId);
-  }
-  
-  res.json({ events, total: events.length });
-});
-
-// GET /api/v1/fences/:id — 单个围栏
-router.get('/:id', async (req: Request, res: Response) => {
-  const fence = memFences.find(f => f.id === parseInt(req.params.id));
-  if (!fence) return res.status(404).json({ code: '10014', message: '围栏不存在' });
-  res.json(fence);
-});
-
-// ============================================================
-//  管理员路由（需要admin角色）
-// ============================================================
 
 // POST /api/v1/fences — 创建围栏（仅管理员）
 router.post('/',
   adminMiddleware,
   validate([
     body('name').notEmpty().withMessage('围栏名称不能为空'),
-    body('shapeType').isIn(['circle', 'polygon']),
-    body('centerLat').optional().isFloat(),
-    body('centerLng').optional().isFloat(),
-    body('radiusMeters').optional().isFloat({ min: 10, max: 10000 }),
+    body('shapeType').isIn(['circle', 'polygon']).withMessage('类型必须是 circle 或 polygon'),
   ]),
   async (req: Request, res: Response) => {
     const user = (req as any).user as JwtPayload;
-    const { name, departmentId, shapeType, centerLat, centerLng, radiusMeters, coordinates } = req.body;
-    const fence: Fence = {
-      id: memFenceIdSeq++, name, departmentId: departmentId || null, shapeType,
-      centerLat: centerLat || null, centerLng: centerLng || null, radiusMeters: radiusMeters || 300,
-      coordinates: coordinates || null, isActive: true, createdBy: user.userId,
-      createdAt: new Date().toISOString(),
-    };
-    memFences.push(fence);
-    res.status(201).json(fence);
+    const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, departmentId, color } = req.body;
+
+    const result = await pgPool.query(
+      `INSERT INTO geo_fences (name, department_id, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, name, department_id, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active, created_at`,
+      [
+        name,
+        departmentId || null,
+        shapeType,
+        shapeType === 'circle' ? (centerLat ?? null) : null,
+        shapeType === 'circle' ? (centerLng ?? null) : null,
+        shapeType === 'circle' ? (radiusMeters ?? 100) : null,
+        shapeType === 'polygon' ? (coordinates ? JSON.stringify(coordinates) : null) : null,
+        color || '#FF0000',
+        user.userId,
+      ],
+    );
+
+    res.status(201).json(formatFence(result.rows[0]));
   },
 );
 
 // PUT /api/v1/fences/:id — 更新围栏（仅管理员）
-router.put('/:id', adminMiddleware, async (req: Request, res: Response) => {
-  const idx = memFences.findIndex(f => f.id === parseInt(req.params.id));
-  if (idx === -1) return res.status(404).json({ code: '10014', message: '围栏不存在' });
-  memFences[idx] = { ...memFences[idx], ...req.body, id: memFences[idx].id };
-  res.json(memFences[idx]);
-});
-
-// DELETE /api/v1/fences/:id — 删除围栏（仅管理员）
-router.delete('/:id', adminMiddleware, async (req: Request, res: Response) => {
-  const idx = memFences.findIndex(f => f.id === parseInt(req.params.id));
-  if (idx === -1) return res.status(404).json({ code: '10014', message: '围栏不存在' });
-  memFences[idx].isActive = false;
-  res.json({ success: true });
-});
-
-// POST /api/v1/fences/event — 记录围栏事件（内部/系统调用）
-router.post('/event',
-  validate([
-    body('fenceId').isInt(),
-    body('eventType').isIn(['enter', 'exit']),
-    body('lat').isFloat(), body('lng').isFloat(),
-  ]),
+router.put('/:id',
+  adminMiddleware,
   async (req: Request, res: Response) => {
-    const user = (req as any).user as JwtPayload;
-    const { fenceId, eventType, lat, lng } = req.body;
-    const fence = memFences.find(f => f.id === fenceId);
-    const event: FenceEvent = {
-      id: memEventIdSeq++, userId: user.userId, fenceId,
-      fenceName: fence?.name || '未知围栏', eventType, lat, lng,
-      createdAt: new Date().toISOString(),
-    };
-    memFenceEvents.push(event);
-    res.status(201).json(event);
+    const { id } = req.params;
+    const { name, centerLat, centerLng, radiusMeters, coordinates, isActive, color } = req.body;
+
+    const exist = await pgPool.query('SELECT id FROM geo_fences WHERE id = $1', [id]);
+    if (exist.rows.length === 0) {
+      return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+    }
+
+    const result = await pgPool.query(
+      `UPDATE geo_fences SET
+        name = COALESCE($1, name),
+        center_lat = COALESCE($2, center_lat),
+        center_lng = COALESCE($3, center_lng),
+        radius_meters = COALESCE($4, radius_meters),
+        polygon_points = COALESCE($5, polygon_points),
+        color = COALESCE($6, color),
+        is_active = COALESCE($7, is_active),
+        updated_at = NOW()
+       WHERE id = $8
+       RETURNING id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active`,
+      [
+        name ?? null, centerLat ?? null, centerLng ?? null,
+        radiusMeters ?? null, coordinates ? JSON.stringify(coordinates) : null,
+        color ?? null, isActive ?? null, id,
+      ],
+    );
+
+    res.json(formatFence(result.rows[0]));
   },
 );
 
-// POST /api/v1/fences/auto-check — 定位上报时自动检测围栏
+// DELETE /api/v1/fences/:id — 删除围栏（仅管理员）
+router.delete('/:id',
+  adminMiddleware,
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const result = await pgPool.query(
+      'DELETE FROM geo_fences WHERE id = $1 RETURNING id',
+      [id],
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+    }
+    res.json({ success: true, message: '围栏已删除' });
+  },
+);
+
+// GET /api/v1/fences/check?lat=&lng= — 检测某点是否在围栏内
+router.get('/check',
+  validate([
+    query('lat').isFloat().withMessage('纬度必须是数字'),
+    query('lng').isFloat().withMessage('经度必须是数字'),
+  ]),
+  async (req: Request, res: Response) => {
+    const user = (req as any).user as JwtPayload;
+    const { lat, lng } = req.query;
+    const userLat = parseFloat(lat as string);
+    const userLng = parseFloat(lng as string);
+
+    let fenceQuery = `SELECT id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points
+                       FROM geo_fences WHERE is_active = true`;
+    const params: any[] = [];
+    if (user.role !== 'admin') {
+      fenceQuery += ` AND (department_id IS NULL OR department_id = $1)`;
+      params.push(user.departmentId);
+    }
+
+    const result = await pgPool.query(fenceQuery, params);
+    const fences = result.rows;
+
+    const results = fences.map(f => {
+      if (f.shape_type === 'circle') {
+        const distance = haversineDistance(userLat, userLng, f.center_lat, f.center_lng);
+        return { fenceId: f.id, name: f.name, inside: distance <= (f.radius_meters || 100) };
+      } else {
+        const coords: Array<{lat: number; lng: number}> = f.polygon_points || [];
+        return { fenceId: f.id, name: f.name, inside: pointInPolygon(userLat, userLng, coords) };
+      }
+    });
+
+    res.json({ lat: userLat, lng: userLng, results });
+  },
+);
+
+// GET /api/v1/fences/events — 围栏事件列表
+router.get('/events', async (req: Request, res: Response) => {
+  const user = (req as any).user as JwtPayload;
+
+  let query = `SELECT fe.id, fe.fence_id, gf.name as fence_name, fe.event_type,
+                      fe.lat, fe.lng, fe.created_at
+               FROM fence_events fe
+               JOIN geo_fences gf ON fe.fence_id = gf.id`;
+  const params: any[] = [];
+  if (user.role !== 'admin') {
+    query += ` WHERE fe.user_id = $1`;
+    params.push(user.userId);
+  }
+  query += ' ORDER BY fe.created_at DESC LIMIT 200';
+
+  const result = await pgPool.query(query, params);
+  res.json({
+    total: result.rows.length,
+    events: result.rows.map(r => ({
+      id: r.id,
+      fenceId: r.fence_id,
+      fenceName: r.fence_name,
+      eventType: r.event_type,
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lng),
+      createdAt: r.created_at,
+    })),
+  });
+});
+
+// GET /api/v1/fences/:id — 单个围栏详情（必须放在所有具名 GET 路由之后）
+router.get('/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const result = await pgPool.query(
+    `SELECT id, name, department_id, shape_type,
+            center_lat, center_lng, radius_meters,
+            polygon_points, is_active, color, description,
+            created_by, created_at
+     FROM geo_fences WHERE id = $1`,
+    [id],
+  );
+  if (result.rows.length === 0) {
+    return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+  }
+  res.json(formatFence(result.rows[0]));
+});
+
+// POST /api/v1/fences/auto-check — 自动围栏检测（定位上报时调用）
+// 追踪 enter/exit 状态切换，只在状态翻转时记录事件
 router.post('/auto-check', async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
   const { lat, lng } = req.body;
-  if (lat === undefined || lng === undefined) {
-    return res.json({ events: [] });
+  if (!lat || !lng) return res.json({ events: [], count: 0 });
+
+  let fenceQuery = `SELECT id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points
+                     FROM geo_fences WHERE is_active = true`;
+  const params: any[] = [];
+  if (user.role !== 'admin') {
+    fenceQuery += ` AND (department_id IS NULL OR department_id = $1)`;
+    params.push(user.departmentId);
   }
 
-  // 检查所有活跃围栏
-  const events: { fenceId: number; fenceName: string; eventType: 'enter' | 'exit'; lat: number; lng: number }[] = [];
-  
-  for (const fence of memFences) {
-    if (!fence.isActive) continue;
-    // 部门权限过滤
-    if (fence.departmentId && fence.departmentId !== user.departmentId) continue;
-    
+  const result = await pgPool.query(fenceQuery, params);
+  const fences = result.rows;
+  const events: Array<{eventType: string; fenceId: string; fenceName: string; lat: number; lng: number}> = [];
+
+  for (const f of fences) {
     let inside = false;
-    if (fence.shapeType === 'circle' && fence.centerLat && fence.centerLng) {
-      inside = haversineDistance(lat, lng, fence.centerLat, fence.centerLng) <= (fence.radiusMeters || 300);
-    } else if (fence.shapeType === 'polygon' && fence.coordinates && fence.coordinates.length >= 3) {
-      inside = pointInPolygon(lat, lng, fence.coordinates);
+    if (f.shape_type === 'circle') {
+      const distance = haversineDistance(lat, lng, f.center_lat, f.center_lng);
+      inside = distance <= (f.radius_meters || 100);
+    } else {
+      const coords: Array<{lat: number; lng: number}> = f.polygon_points || [];
+      inside = pointInPolygon(lat, lng, coords);
     }
 
-    // 查找最近一次该用户对该围栏的事件
-    const lastEvent = [...memFenceEvents].reverse().find(e => e.userId === user.userId && e.fenceId === fence.id);
-    const lastWasInside = lastEvent?.eventType === 'enter';
+    // 查询该用户对该围栏的最新事件，判断状态是否翻转
+    const lastEventResult = await pgPool.query(
+      `SELECT event_type FROM fence_events
+       WHERE user_id = $1 AND fence_id = $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [user.userId, f.id],
+    );
+    const lastWasInside = lastEventResult.rows.length > 0 && lastEventResult.rows[0].event_type === 'enter';
 
-    // 状态变化时才触发事件
     if (inside && !lastWasInside) {
-      memFenceEvents.push({
-        id: memEventIdSeq++, userId: user.userId, fenceId: fence.id,
-        fenceName: fence.name, eventType: 'enter', lat, lng,
-        createdAt: new Date().toISOString(),
-      });
-      events.push({ fenceId: fence.id, fenceName: fence.name, eventType: 'enter', lat, lng });
+      await pgPool.query(
+        `INSERT INTO fence_events (user_id, fence_id, event_type, lat, lng)
+         VALUES ($1, $2, 'enter', $3, $4)`,
+        [user.userId, f.id, lat, lng],
+      );
+      events.push({ eventType: 'enter', fenceId: f.id, fenceName: f.name, lat, lng });
     } else if (!inside && lastWasInside) {
-      memFenceEvents.push({
-        id: memEventIdSeq++, userId: user.userId, fenceId: fence.id,
-        fenceName: fence.name, eventType: 'exit', lat, lng,
-        createdAt: new Date().toISOString(),
-      });
-      events.push({ fenceId: fence.id, fenceName: fence.name, eventType: 'exit', lat, lng });
+      await pgPool.query(
+        `INSERT INTO fence_events (user_id, fence_id, event_type, lat, lng)
+         VALUES ($1, $2, 'exit', $3, $4)`,
+        [user.userId, f.id, lat, lng],
+      );
+      events.push({ eventType: 'exit', fenceId: f.id, fenceName: f.name, lat, lng });
     }
+    // 无变化，不记录
   }
 
   res.json({ events, count: events.length });
 });
-
-// ============================================================
-//  辅助函数
-// ============================================================
-
-function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function toRad(deg: number) { return deg * Math.PI / 180; }
-
-/** 射线法判断点是否在多边形内 (Point-in-Polygon)
- *  coordinates: [{lat, lng}, ...] 多边形折点数组，至少3个点
- *  返回 true = 点在多边形内部
- */
-function pointInPolygon(lat: number, lng: number, coordinates: any[]): boolean {
-  let inside = false;
-  const n = coordinates.length;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const ci = coordinates[i];
-    const cj = coordinates[j];
-    const latI = typeof ci === 'object' ? (ci.lat ?? ci.latitude ?? parseFloat(ci[0] ?? ci[1])) : 0;
-    const lngI = typeof ci === 'object' ? (ci.lng ?? ci.longitude ?? parseFloat(ci[1] ?? ci[0])) : 0;
-    const latJ = typeof cj === 'object' ? (cj.lat ?? cj.latitude ?? parseFloat(cj[0] ?? cj[1])) : 0;
-    const lngJ = typeof cj === 'object' ? (cj.lng ?? cj.longitude ?? parseFloat(cj[1] ?? cj[0])) : 0;
-    
-    if ((lngI > lng) !== (lngJ > lng) && lat < ((latJ - latI) * (lng - lngI) / (lngJ - lngI)) + latI) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
 
 export default router;

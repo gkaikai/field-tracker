@@ -294,10 +294,10 @@ router.post('/rules',
     try {
       // 尝试数据库
       const result = await pgPool.query(
-        `INSERT INTO attendance_rules (name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO attendance_rules (name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid, checkin_start, checkin_end)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *`,
-        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || 300, wifi_ssid || null, wifi_bssid || null],
+        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || 300, wifi_ssid || null, wifi_bssid || null, req.body.checkin_start || null, req.body.checkin_end || null],
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -315,8 +315,12 @@ router.put('/rules/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await pgPool.query(
-        `UPDATE attendance_rules SET name=$1, start_time=$2, end_time=$3, radius_meters=$4, wifi_ssid=$5 WHERE id=$6`,
-        [req.body.name, req.body.startTime, req.body.endTime, req.body.radius || req.body.radius_meters, req.body.wifiName || req.body.wifi_ssid, req.params.id],
+        `UPDATE attendance_rules SET
+          name=$1, center_lat=$2, center_lng=$3, radius_meters=$4,
+          checkin_start=$5, checkin_end=$6, wifi_ssid=$7
+         WHERE id=$8`,
+        [req.body.name, req.body.center_lat, req.body.center_lng, req.body.radius_meters || req.body.radius,
+         req.body.checkin_start, req.body.checkin_end, req.body.wifiName || req.body.wifi_ssid, req.params.id],
       );
       const result = await pgPool.query('SELECT * FROM attendance_rules WHERE id=$1', [req.params.id]);
       if (result.rows.length > 0) return res.json(result.rows[0]);

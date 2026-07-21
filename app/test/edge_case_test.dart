@@ -14,6 +14,11 @@ import 'package:field_tracker/config/amap_key.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
+
   // ================================================================
   //  LocationPoint - 坐标边界值
   // ================================================================
@@ -321,8 +326,8 @@ void main() {
       expect(AppConfig.apiLogin, startsWith('/'));
     });
 
-    test('静态常量定义 - locationIntervalSeconds 为正整数', () {
-      expect(AppConfig.locationIntervalSeconds, greaterThan(0));
+    test('静态常量定义 - movingUploadInterval 为正整数', () {
+      expect(AppConfig.movingUploadInterval, greaterThan(0));
     });
 
     test('静态常量定义 - notificationChannelId 非空', () {
@@ -334,9 +339,9 @@ void main() {
   //  AMapConfig - 边缘配置值
   // ================================================================
   group('AMapConfig - 边缘配置值 / AMapConfig Edge Values', () {
-    test('静态常量定义 - serverBaseUrl 应为非空字符串', () {
-      expect(AMapConfig.serverBaseUrl, isNotEmpty);
-      expect(AMapConfig.serverBaseUrl, contains('://'));
+    test('动态配置 - baseUrl 应为非空字符串', () {
+      expect(AppConfig.baseUrl, isNotEmpty);
+      expect(AppConfig.baseUrl, contains('://'));
     });
 
     test('静态常量定义 - uploadBatchSize 为正整数', () {
@@ -347,8 +352,8 @@ void main() {
       expect(AMapConfig.uploadIntervalMs, greaterThan(0));
     });
 
-    test('静态常量定义 - wsUrl 为 ws:// 协议', () {
-      expect(AMapConfig.wsUrl, startsWith('ws://'));
+    test('动态配置 - wsUrl 为 ws:// 协议', () {
+      expect(AppConfig.wsUrl, startsWith('ws://'));
     });
   });
 

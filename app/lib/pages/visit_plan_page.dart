@@ -24,7 +24,7 @@ class _VisitPlanPageState extends State<VisitPlanPage> {
       final r = await dio.get('/api/v1/customers/visits',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       setState(() { _plans = r.data['visits'] ?? []; _loading = false; });
-    } catch (e) { setState(() => _loading = false); }
+    } catch (e) { debugPrint('加载拜访计划失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载失败: $e'))); } }
   }
 
   void _showPlanDialog() {
@@ -52,7 +52,7 @@ class _VisitPlanPageState extends State<VisitPlanPage> {
               'lat': 0, 'lng': 0, 'address': '计划拜访: ${customerCtrl.text}',
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             Navigator.pop(ctx); _load();
-          } catch (_) {}
+          } catch (_) { debugPrint('创建拜访计划失败'); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('创建失败'), backgroundColor: Colors.red)); }
         }, child: const Text('保存')),
       ],
     ));

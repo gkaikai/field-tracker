@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
@@ -16,25 +17,33 @@ class OfflineService {
 
   /// 缓存一条位置记录（无网络时调用）
   Future<void> cacheLocation(double lng, double lat, double speed) async {
-    final prefs = await SharedPreferences.getInstance();
-    final cache = prefs.getString(_cacheKey);
-    final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
-    list.add({
-      'lng': lng, 'lat': lat, 'speed': speed,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-    // 最多保留500条
-    while (list.length > 500) list.removeAt(0);
-    await prefs.setString(_cacheKey, json.encode(list));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cache = prefs.getString(_cacheKey);
+      final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+      list.add({
+        'lng': lng, 'lat': lat, 'speed': speed,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+      // 最多保留500条
+      while (list.length > 500) list.removeAt(0);
+      await prefs.setString(_cacheKey, json.encode(list));
+    } catch (e) {
+      debugPrint('[OfflineService] 缓存位置失败: $e');
+    }
   }
 
   /// 缓存一次打卡（无网络时调用）
   Future<void> cacheCheckin(String type, double lng, double lat) async {
-    final prefs = await SharedPreferences.getInstance();
-    final cache = prefs.getString(_pendingCheckinKey);
-    final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
-    list.add({ 'type': type, 'lng': lng, 'lat': lat, 'timestamp': DateTime.now().toIso8601String() });
-    await prefs.setString(_pendingCheckinKey, json.encode(list));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cache = prefs.getString(_pendingCheckinKey);
+      final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+      list.add({ 'type': type, 'lng': lng, 'lat': lat, 'timestamp': DateTime.now().toIso8601String() });
+      await prefs.setString(_pendingCheckinKey, json.encode(list));
+    } catch (e) {
+      debugPrint('[OfflineService] 缓存打卡失败: $e');
+    }
   }
 
   /// 尝试同步离线数据

@@ -32,24 +32,19 @@ class ApiService {
         handler.next(options);
       },
       onResponse: (response, handler) {
-        // 统一拦截业务错误码
-        // 后端约定：成功响应 code=200，业务异常响应 code=10001~10014
         final data = response.data;
         if (data is Map<String, dynamic>) {
-          // 兼容后端返回的 code 字段可能为 String 或 int
           final codeVal = data['code'];
           final int? bizCode = (codeVal is int) ? codeVal : int.tryParse('$codeVal');
           if (bizCode != null && bizCode != 200 && ErrorCode.isBusinessError(bizCode)) {
             final msg = ErrorCode.message(bizCode);
 
-            // 弹出 Toast 友好提示
             Fluttertoast.showToast(
               msg: msg,
               backgroundColor: _toastRed,
               gravity: ToastGravity.TOP,
             );
 
-            // 抛出业务异常，让调用方 catch 后不再重复 toast
             handler.reject(
               DioException(
                 requestOptions: response.requestOptions,
@@ -66,10 +61,12 @@ class ApiService {
       onError: (error, handler) {
         // 尝试从错误响应中提取业务错误码
         final resp = error.response;
-        if (resp?.data is Map<String, dynamic>) {
-          final data = resp!.data as Map<String, dynamic>;
-          // 兼容后端返回的 code 字段可能为 String 或 int
-          final codeVal = data['code'];
+        Map<String, dynamic>? bizData;
+        if (resp != null && resp.data is Map) {
+          bizData = resp.data as Map<String, dynamic>;
+        }
+        if (bizData != null) {
+          final codeVal = bizData['code'];
           final int? bizCode = (codeVal is int) ? codeVal : int.tryParse('$codeVal');
           if (bizCode != null && ErrorCode.isBusinessError(bizCode)) {
             final msg = ErrorCode.message(bizCode);
@@ -85,7 +82,7 @@ class ApiService {
                 requestOptions: error.requestOptions,
                 response: error.response,
                 type: DioExceptionType.badResponse,
-                error: ApiException(code: bizCode, message: msg, rawData: data),
+                error: ApiException(code: bizCode, message: msg, rawData: bizData),
               ),
             );
             return;
@@ -107,10 +104,14 @@ class ApiService {
 
   void setToken(String? token) => _token = token;
 
+  /// 更新服务器地址（用户手动设置后调用）
+  void updateBaseUrl(String newUrl) {
+    _dio.options.baseUrl = newUrl;
+  }
+
   Future<Response> post(String path, {Map<String, dynamic>? data}) =>
       _dio.post(path, data: data);
 
-  /// 文件上传（multipart）
   Future<Response> uploadFile(String path, FormData formData) =>
       _dio.post(path, data: formData);
 
@@ -123,12 +124,10 @@ class ApiService {
   Future<Response> delete(String path) =>
       _dio.delete(path);
 
-  /// 将网络/HTTP异常转译为可读的中文提示，不暴露技术细节
   static String _httpErrorMessage(DioException e) {
-    // 先看响应体中是否有友好的业务错误信息
     final resp = e.response;
-    if (resp?.data is Map<String, dynamic>) {
-      final data = resp!.data as Map<String, dynamic>;
+    if (resp != null && resp.data is Map) {
+      final data = resp.data as Map<String, dynamic>;
       final msg = data['message'] as String?;
       if (msg != null && msg.isNotEmpty) return msg;
     }

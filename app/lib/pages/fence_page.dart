@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:dio/dio.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
@@ -50,6 +52,9 @@ class _FencePageState extends State<FencePage>
   // 地址搜索
   final _searchCtrl = TextEditingController();
   bool _searchLoading = false;
+  List<Map<String, String>> _searchSuggestions = [];
+  bool _showSuggestions = false;
+  Timer? _searchDebounce;
 
   // 地图控制器
   AMapController? _mapController;
@@ -128,7 +133,12 @@ class _FencePageState extends State<FencePage>
         _fencesLoading = false;
       });
     } catch (e) {
-      if (mounted) setState(() => _fencesLoading = false);
+      debugPrint('加载围栏列表失败: $e');
+      if (mounted) {
+        setState(() => _fencesLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('加载围栏列表失败: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -144,7 +154,12 @@ class _FencePageState extends State<FencePage>
         _eventsLoading = false;
       });
     } catch (e) {
-      if (mounted) setState(() => _eventsLoading = false);
+      debugPrint('加载进出事件失败: $e');
+      if (mounted) {
+        setState(() => _eventsLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('加载进出事件失败: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -189,35 +204,127 @@ class _FencePageState extends State<FencePage>
   }
 
   /// 地址搜索 - 调用高德地图地理编码API
-  Future<void> _searchAddress() async {
-    final keyword = _searchCtrl.text.trim();
-    if (keyword.isEmpty) return;
-    setState(() => _searchLoading = true);
+  /// 输入变化时：防抖搜索建议
+  void _onSearchChanged(String value) {
+    setState(() {});
+    _searchDebounce?.cancel();
+    if (value.trim().isEmpty) {
+      setState(() {
+        _searchSuggestions = [];
+        _showSuggestions = false;
+      });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      _fetchSuggestions(value.trim());
+    });
+  }
+
+  /// 调用高德输入提示API获取模糊建议列表
+  Future<void> _fetchSuggestions(String keyword) async {
     try {
       final dio = Dio();
       final resp = await dio.get(
-        'https://restapi.amap.com/v3/geocode/geo',
+        'https://restapi.amap.com/v3/assistant/inputtips',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
-          'address': keyword,
+          'keywords': keyword,
           'output': 'JSON',
-          'city': '',
         },
       );
-      final geocodes = resp.data['geocodes'] as List?;
-      if (geocodes == null || geocodes.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('未找到该地址'), backgroundColor: Colors.orange));
-        }
+      final tips = resp.data['tips'] as List?;
+      if (tips == null || tips.isEmpty) {
+        if (mounted) setState(() => _showSuggestions = false);
         return;
       }
-      final location = geocodes[0]['location'] as String? ?? '';
-      final parts = location.split(',');
-      if (parts.length != 2) throw Exception('坐标格式错误');
-      final lng = double.parse(parts[0]);
-      final lat = double.parse(parts[1]);
-      final address = geocodes[0]['formattedAddress'] as String? ?? keyword;
+      if (mounted) {
+        setState(() {
+          _searchSuggestions = tips.map((t) {
+            final m = t as Map<String, dynamic>;
+            return {
+              'name': (m['name'] ?? '').toString(),
+              'address': (m['address'] ?? '').toString(),
+              'location': (m['location'] ?? '').toString(),
+              'district': (m['district'] ?? '').toString(),
+            };
+          }).where((x) => x['location'] != null && x['location']!.isNotEmpty)
+           .take(8).toList();
+          _showSuggestions = _searchSuggestions.isNotEmpty;
+        });
+      }
+    } catch (_) {
+      debugPrint('获取搜索建议失败');
+    }
+  }
+
+  /// 搜索指定关键词并定位到结果第一项
+  Future<void> _searchAddress(String keyword) async {
+    if (keyword.isEmpty) return;
+    setState(() {
+      _searchLoading = true;
+      _showSuggestions = false;
+    });
+    try {
+      // 优先使用POI搜索（更准）
+      final dio = Dio();
+      Map<String, dynamic>? target;
+      String? poiLocation;
+
+      // 先尝试POI搜索
+      try {
+        final poiResp = await dio.get(
+          'https://restapi.amap.com/v3/place/text',
+          queryParameters: {
+            'key': AMapConfig.webServiceKey,
+            'keywords': keyword,
+            'output': 'JSON',
+          },
+        );
+        final pois = poiResp.data['pois'] as List?;
+        if (pois != null && pois.isNotEmpty) {
+          final first = pois[0] as Map<String, dynamic>;
+          poiLocation = first['location'] as String?;
+          target = {
+            'lat': double.tryParse(poiLocation!.split(',')[1]),
+            'lng': double.tryParse(poiLocation.split(',')[0]),
+            'address': first['address'] as String? ?? keyword,
+          };
+        }
+      } catch (_) { debugPrint('POI搜索失败，回退到地理编码'); }
+
+      // POI失败则回退到地理编码
+      if (target == null) {
+        final geoResp = await dio.get(
+          'https://restapi.amap.com/v3/geocode/geo',
+          queryParameters: {
+            'key': AMapConfig.webServiceKey,
+            'address': keyword,
+            'output': 'JSON',
+            'city': '',
+          },
+        );
+        final geocodes = geoResp.data['geocodes'] as List?;
+        if (geocodes == null || geocodes.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('未找到该地址'), backgroundColor: Colors.orange));
+          }
+          return;
+        }
+        final location = geocodes[0]['location'] as String? ?? '';
+        final parts = location.split(',');
+        if (parts.length != 2) throw Exception('坐标格式错误');
+        target = {
+          'lat': double.parse(parts[1]),
+          'lng': double.parse(parts[0]),
+          'address': geocodes[0]['formattedAddress'] as String? ?? keyword,
+        };
+      }
+
+      final lat = target['lat'] as double;
+      final lng = target['lng'] as double;
+      final address = target['address'] as String;
+
       if (mounted) {
         setState(() {
           if (_isCircleMode) {
@@ -229,7 +336,6 @@ class _FencePageState extends State<FencePage>
             _polygonNameCtrl.text = keyword;
           }
         });
-        // 移动地图到搜索位置
         _mapController?.moveCamera(
           CameraUpdate.newLatLngZoom(LatLng(lat, lng), 16),
         );
@@ -827,67 +933,112 @@ class _FencePageState extends State<FencePage>
     );
   }
 
-  /// 地址搜索栏
+  /// 地址搜索栏（带模糊搜索 + 下拉建议）
   Widget _buildSearchBar() {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       color: Colors.white,
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: SizedBox(
-              height: 36,
-              child: TextField(
-                controller: _searchCtrl,
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: '搜索地址，如：深圳科技园',
-                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 36,
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: const TextStyle(fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: '搜索地址，如：郑州科技园',
+                      hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.blue),
+                      ),
+                      isDense: true,
+                      suffixIcon: _searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() {
+                                  _searchSuggestions = [];
+                                  _showSuggestions = false;
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                            )
+                          : null,
+                    ),
+                    onChanged: _onSearchChanged,
+                    onSubmitted: (_) => _searchAddress(_searchCtrl.text.trim()),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.blue),
-                  ),
-                  isDense: true,
-                  suffixIcon: _searchCtrl.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            setState(() {});
-                          },
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                        )
-                      : null,
                 ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _searchAddress(),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 36,
+                child: ElevatedButton(
+                  onPressed: _searchLoading ? null : () => _searchAddress(_searchCtrl.text.trim()),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: _searchLoading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.search, size: 20),
+                ),
+              ),
+            ],
+          ),
+          // 下拉建议列表
+          if (_showSuggestions && _searchSuggestions.isNotEmpty)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 220),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
+                ],
+              ),
+              margin: const EdgeInsets.only(top: 4),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: _searchSuggestions.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, indent: 12, endIndent: 12),
+                itemBuilder: (context, i) {
+                  final item = _searchSuggestions[i];
+                  return ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.location_on_outlined, size: 18, color: Colors.grey),
+                    title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
+                    subtitle: item['address'] != null && item['address']!.isNotEmpty
+                        ? Text(item['address']!, style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                            maxLines: 1, overflow: TextOverflow.ellipsis)
+                        : null,
+                    onTap: () {
+                      _searchCtrl.text = item['name'] ?? '';
+                      _showSuggestions = false;
+                      _searchAddress(item['name'] ?? '');
+                    },
+                  );
+                },
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 36,
-            child: ElevatedButton(
-              onPressed: _searchLoading ? null : _searchAddress,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: _searchLoading
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.search, size: 20),
-            ),
-          ),
         ],
       ),
     );
@@ -1025,6 +1176,12 @@ class _FencePageState extends State<FencePage>
       markers: markers,
       polylines: polylines,
       polygons: polygons,
+      zoomGesturesEnabled: true,
+      scrollGesturesEnabled: true,
+      rotateGesturesEnabled: true,
+      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+        Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+      },
     );
   }
 

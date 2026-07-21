@@ -2,6 +2,7 @@
 // 使用高德定位SDK代替Geolocator
 
 import 'dart:async';
+import 'dart:math' show cos, sin, pi;
 
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
@@ -36,11 +37,15 @@ class _MapPageState extends State<MapPage> {
   Set<Marker> _customerMarkers = {};
   bool _isLoadingCustomers = false;
 
+  // 电子围栏（多边形集）
+  Set<Polygon> _fencePolygons = {};
+
   @override
   void initState() {
     super.initState();
     _initLocation();
     _loadCustomers();
+    _loadFences();
   }
 
   @override
@@ -108,6 +113,68 @@ class _MapPageState extends State<MapPage> {
     } else {
       _initLocation();
     }
+  }
+
+  /// 加载电子围栏并渲染为红色多边形
+  Future<void> _loadFences() async {
+    try {
+      final resp = await _api.get('/api/v1/fences');
+      final List<dynamic> raw = resp.data is List
+          ? resp.data
+          : (resp.data['data'] ?? resp.data['fences'] ?? []);
+      final fences = <Polygon>{};
+      for (final f in raw) {
+        final fence = f as Map<String, dynamic>;
+        final shapeType = fence['shapeType'] as String? ?? 'circle';
+        if (shapeType == 'circle') {
+          final lat = fence['centerLat'] as num?;
+          final lng = fence['centerLng'] as num?;
+          final radius = fence['radiusMeters'] as num? ?? 300;
+          if (lat == null || lng == null) continue;
+          fences.add(Polygon(
+            points: _circlePolygonPoints(LatLng(lat.toDouble(), lng.toDouble()), radius.toDouble()),
+            strokeWidth: 3,
+            strokeColor: Colors.red,
+            fillColor: Colors.red.withOpacity(0.10),
+          ));
+        } else if (shapeType == 'polygon') {
+          final coords = fence['coordinates'] as List<dynamic>?;
+          if (coords == null || coords.length < 3) continue;
+          final pts = coords.map((c) {
+            if (c is Map<String, dynamic>) {
+              // 格式: [{"lat":34.6, "lng":113.9}, ...]
+              return LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble());
+            }
+            // 格式: [[113.9, 34.6], ...] (lng, lat)
+            final cList = c as List<dynamic>;
+            return LatLng((cList[1] as num).toDouble(), (cList[0] as num).toDouble());
+          }).toList();
+          fences.add(Polygon(
+            points: pts,
+            strokeWidth: 3,
+            strokeColor: Colors.red,
+            fillColor: Colors.red.withOpacity(0.10),
+          ));
+        }
+      }
+      if (mounted) setState(() => _fencePolygons = fences);
+    } catch (_) {
+      // 加载围栏失败不影响主功能
+    }
+  }
+
+  /// 生成近似圆形的多边形点（AMap没有Circle覆盖物，用Polygon模拟）
+  List<LatLng> _circlePolygonPoints(LatLng center, double radiusMeters) {
+    const n = 64;
+    const latPerM = 1.0 / 111320.0;
+    final lngPerM = 1.0 / (111320.0 * cos(center.latitude * pi / 180.0));
+    return List.generate(n, (i) {
+      final angle = 2 * pi * i / n;
+      return LatLng(
+        center.latitude + radiusMeters * cos(angle) * latPerM,
+        center.longitude + radiusMeters * sin(angle) * lngPerM,
+      );
+    });
   }
 
   /// 打卡
@@ -320,6 +387,7 @@ class _MapPageState extends State<MapPage> {
             zoomGesturesEnabled: true,
             scrollGesturesEnabled: true,
             markers: _customerMarkers,
+            polygons: _fencePolygons,
           ),
 
           // ---- 顶部状态栏 ----

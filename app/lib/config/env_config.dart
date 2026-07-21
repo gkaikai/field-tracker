@@ -1,32 +1,34 @@
 /// 环境配置 - 根据构建模式选择后端 API 地址
 ///
 /// 开发模式 (flutter run / debug):        http://localhost:3000
-/// 生产模式 (flutter build --release):     Serveo 公网地址
+/// 生产模式 (flutter build --release):     从 SharedPreferences 读取，用户可手动配置
 library;
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 根据当前构建模式获取环境配置
 class EnvConfig {
+  /// 默认生产地址（当用户未手动设置时使用）
+  static const String _defaultProdUrl = 'https://39cf0a7f34115140-123-123-97-213.serveousercontent.com';
+
   /// 后端 API 基础地址
-  static String get baseUrl {
-    if (kReleaseMode) {
-      // 生产模式 - 通过 Serveo 公网隧道访问
-      return 'https://276dd758cce0eb01-123-123-97-213.serveousercontent.com';
-    } else if (kProfileMode) {
-      // Profile 模式 - 也使用生产地址
-      return 'https://276dd758cce0eb01-123-123-97-213.serveousercontent.com';
+  static String _cachedBaseUrl = '';
+  static Future<String> get baseUrl async {
+    if (_cachedBaseUrl.isNotEmpty) return _cachedBaseUrl;
+
+    if (kReleaseMode || kProfileMode) {
+      final prefs = await SharedPreferences.getInstance();
+      _cachedBaseUrl = prefs.getString('server_base_url') ?? _defaultProdUrl;
+      return _cachedBaseUrl;
     } else {
-      // 开发/调试模式 - 本地服务器
-      // Android 模拟器用 10.0.2.2 映射宿主机 localhost
-      // iOS 模拟器直接用 localhost
       return 'http://localhost:3000';
     }
   }
 
-  /// 是否为生产环境
-  static bool get isProduction => kReleaseMode;
-
-  /// 是否为开发环境
-  static bool get isDevelopment => !kReleaseMode;
+  static Future<void> setBaseUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('server_base_url', url);
+    _cachedBaseUrl = url;
+  }
 }

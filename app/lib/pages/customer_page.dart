@@ -1,7 +1,10 @@
 // 客户管理页面
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import '../services/api_service.dart';
 import '../config/app_config.dart';
+import '../config/amap_key.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -31,50 +34,170 @@ class _CustomerPageState extends State<CustomerPage> {
     setState(() => _loading = false);
   }
 
+  /// 添加/编辑客户表单（地址搜索代替手动填经纬度）
   void _form({Map? existing}) {
     final edit = existing != null;
     final nc = TextEditingController(text: existing?['name'] ?? '');
     final pc = TextEditingController(text: existing?['phone'] ?? '');
     final ac = TextEditingController(text: existing?['address'] ?? '');
-    final lc = TextEditingController(text: (existing?['lat']?.toString() ?? '22.55'));
-    final lgc = TextEditingController(text: (existing?['lng']?.toString() ?? '114.08'));
-    final rc = TextEditingController(text: existing?['remark'] ?? '');
-    final tc = TextEditingController();
-    List<String> tags = existing != null ? ((existing['tags'] as List?)?.cast<String>() ?? []) : [];
+    // 搜索相关
+    final searchCtrl = TextEditingController(text: existing?['address'] ?? '');
+    List<Map<String, dynamic>> suggestions = [];
+    bool showSug = false;
+    // 隐藏的经纬度（搜索选择后自动填充）
+    double selectedLat = (existing?['lat'] as num?)?.toDouble() ?? 0;
+    double selectedLng = (existing?['lng'] as num?)?.toDouble() ?? 0;
+    Timer? debounce;
+
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setS) {
         return AlertDialog(
           title: Text(edit ? '编辑客户' : '添加客户'),
-          content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          content: SizedBox(width: 380, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             TextField(controller: nc, decoration: const InputDecoration(labelText: '客户名称 *', border: OutlineInputBorder()), autofocus: true),
             const SizedBox(height: 8),
-            TextField(controller: pc, decoration: const InputDecoration(labelText: '联系电话', border: OutlineInputBorder(), helperText: '支持国际号码'), keyboardType: TextInputType.phone, maxLength: 20),
+            TextField(controller: pc, decoration: const InputDecoration(labelText: '联系电话', border: OutlineInputBorder(), helperText: '11位手机号'), keyboardType: TextInputType.phone, maxLength: 11),
             const SizedBox(height: 8),
-            TextField(controller: ac, decoration: const InputDecoration(labelText: '地址', border: OutlineInputBorder())),
+            // 地址搜索框（替代原来的地址+经纬度手填）
+            TextField(
+              controller: searchCtrl,
+              decoration: InputDecoration(
+                labelText: '搜索地址',
+                hintText: '输入地址关键词搜索...',
+                prefixIcon: const Icon(Icons.search),
+                border: const OutlineInputBorder(),
+                suffixIcon: searchCtrl.text.isNotEmpty
+                    ? IconButton(icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          searchCtrl.clear();
+                          setS(() {
+                            showSug = false;
+                            suggestions = [];
+                            selectedLat = 0;
+                            selectedLng = 0;
+                            ac.text = '';
+                          });
+                        })
+                    : null,
+              ),
+              onChanged: (v) {
+                ac.text = v;
+                debounce?.cancel();
+                if (v.trim().isEmpty) {
+                  setS(() { showSug = false; suggestions = []; });
+                  return;
+                }
+                debounce = Timer(const Duration(milliseconds: 400), () async {
+                  try {
+                    final dio = Dio();
+                    final resp = await dio.get(
+                      'https://restapi.amap.com/v3/assistant/inputtips',
+                      queryParameters: {'key': AMapConfig.webServiceKey, 'keywords': v.trim(), 'output': 'JSON'},
+                    );
+                    final tips = (resp.data['tips'] as List?) ?? [];
+                    setS(() {
+                      suggestions = tips.map((t) {
+                        final m = t as Map<String, dynamic>;
+                        return <String, dynamic>{
+                          'name': (m['name'] ?? '').toString(),
+                          'address': (m['address'] ?? '').toString(),
+                          'location': (m['location'] ?? '').toString(),
+                          'district': (m['district'] ?? '').toString(),
+                        };
+                      }).toList();
+                      showSug = suggestions.isNotEmpty;
+                    });
+                  } catch (_) {}
+                });
+              },
+            ),
+            // 地址建议下拉列表
+            if (showSug && suggestions.isNotEmpty)
+              Container(
+                constraints: const BoxConstraints(maxHeight: 200),
+                margin: const EdgeInsets.only(top: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: suggestions.length > 8 ? 8 : suggestions.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final s = suggestions[i];
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.location_on, size: 18, color: Colors.grey),
+                      title: Text(s['name'] ?? '', style: const TextStyle(fontSize: 14)),
+                      subtitle: s['address']?.isNotEmpty == true
+                          ? Text('${s['address']}', style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis)
+                          : null,
+                      onTap: () {
+                        final locStr = s['location'] ?? '';
+                        if (locStr.contains(',')) {
+                          final parts = locStr.split(',');
+                          selectedLng = double.tryParse(parts[0]) ?? 0;
+                          selectedLat = double.tryParse(parts[1]) ?? 0;
+                        }
+                        final addr = s['name'] ?? '';
+                        final district = s['district'] ?? '';
+                        final fullAddr = [district, addr].where((x) => x.isNotEmpty).join('');
+                        searchCtrl.text = fullAddr;
+                        ac.text = fullAddr;
+                        setS(() { showSug = false; suggestions = []; });
+                      },
+                    );
+                  },
+                ),
+              ),
+            // 显示已选中的位置信息（只读，不可手动编辑）
+            if (selectedLat != 0 || selectedLng != 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(children: [
+                  Icon(Icons.check_circle, size: 14, color: Colors.green[600]),
+                  const SizedBox(width: 4),
+                  Text('已定位: ${selectedLat.toStringAsFixed(4)}, ${selectedLng.toStringAsFixed(4)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                ]),
+              ),
             const SizedBox(height: 8),
-            Row(children: [
-              Expanded(child: TextField(controller: lc, decoration: const InputDecoration(labelText: '纬度', isDense: true, border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-              const SizedBox(width: 8),
-              Expanded(child: TextField(controller: lgc, decoration: const InputDecoration(labelText: '经度', isDense: true, border: OutlineInputBorder()), keyboardType: TextInputType.number)),
-            ]),
+            // 标签输入
+            _TagsInput(existing: existing, onTagsChanged: (tags) {}),
             const SizedBox(height: 8),
-            Row(children: [
-              Expanded(child: TextField(controller: tc, decoration: const InputDecoration(labelText: '标签', hintText: '回车添加', isDense: true, border: OutlineInputBorder()),
-                onSubmitted: (v) { if (v.trim().isNotEmpty) { setS(() { tags.add(v.trim()); tc.clear(); }); } })),
-              IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () { if (tc.text.trim().isNotEmpty) { setS(() { tags.add(tc.text.trim()); tc.clear(); }); } }),
-            ]),
-            if (tags.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 8), child: SizedBox(height: 30,
-              child: ListView(scrollDirection: Axis.horizontal, children: tags.map((t) => Padding(padding: const EdgeInsets.only(right: 4),
-                child: Chip(label: Text(t, style: const TextStyle(fontSize: 12)), onDeleted: () => setS(() => tags.remove(t)),
-                  deleteIcon: const Icon(Icons.close, size: 14), visualDensity: VisualDensity.compact))).toList()))),
-            TextField(controller: rc, decoration: const InputDecoration(labelText: '备注', border: OutlineInputBorder()), maxLines: 2),
+            TextField(controller: ac, decoration: const InputDecoration(labelText: '地址', border: OutlineInputBorder(), helperText: '由地址搜索自动填入，可手动修改'), maxLines: 2),
+            const SizedBox(height: 8),
+            // 备注
+            TextField(controller: TextEditingController(text: existing?['remark'] ?? ''),
+              decoration: const InputDecoration(labelText: '备注', border: OutlineInputBorder()), maxLines: 2),
           ]))),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
             ElevatedButton(onPressed: () async {
               if (nc.text.trim().isEmpty) return;
-              final data = {'name': nc.text.trim(), 'phone': pc.text, 'address': ac.text,
-                'lat': double.tryParse(lc.text) ?? 0, 'lng': double.tryParse(lgc.text) ?? 0, 'remark': rc.text, 'tags': tags};
+              // 手机号校验
+              final phone = pc.text.trim();
+              if (phone.isNotEmpty) {
+                final digitsOnly = phone.replaceAll(RegExp(r'[^\d]'), '');
+                // 中国大陆手机号必须是11位数字，以1开头
+                if (phone.length != digitsOnly.length || !RegExp(r'^1\d{10}$').hasMatch(digitsOnly)) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('手机号格式不正确（中国大陆手机号需为11位数字，以1开头）')),
+                  );
+                  return;
+                }
+              }
+              final remarkCtrl = TextEditingController(text: existing?['remark'] ?? '');
+              final data = {
+                'name': nc.text.trim(),
+                'phone': pc.text,
+                'address': ac.text,
+                'lat': selectedLat,
+                'lng': selectedLng,
+                'remark': remarkCtrl.text,
+              };
               try {
                 if (edit) { await _api.put('/api/v1/customers/${existing['id']}', data: data); }
                 else { await _api.post('/api/v1/customers', data: data); }
@@ -150,6 +273,52 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 }
 
+// ============================================================
+//  标签输入组件
+// ============================================================
+class _TagsInput extends StatefulWidget {
+  final Map? existing;
+  final Function(List<String>) onTagsChanged;
+  const _TagsInput({this.existing, required this.onTagsChanged});
+  @override
+  State<_TagsInput> createState() => _TagsInputState();
+}
+
+class _TagsInputState extends State<_TagsInput> {
+  late List<String> _tags;
+  final _tc = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tags = widget.existing != null
+        ? ((widget.existing!['tags'] as List?)?.cast<String>() ?? [])
+        : [];
+  }
+
+  @override
+  void dispose() { _tc.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Row(children: [
+        Expanded(child: TextField(controller: _tc, decoration: const InputDecoration(labelText: '标签', hintText: '回车添加', isDense: true, border: OutlineInputBorder()),
+          onSubmitted: (v) { if (v.trim().isNotEmpty) { setState(() { _tags.add(v.trim()); _tc.clear(); widget.onTagsChanged(_tags); }); } })),
+        IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () { if (_tc.text.trim().isNotEmpty) { setState(() { _tags.add(_tc.text.trim()); _tc.clear(); widget.onTagsChanged(_tags); }); } }),
+      ]),
+      if (_tags.isNotEmpty)
+        Padding(padding: const EdgeInsets.only(top: 4), child: SizedBox(height: 30,
+          child: ListView(scrollDirection: Axis.horizontal, children: _tags.map((t) => Padding(padding: const EdgeInsets.only(right: 4),
+            child: Chip(label: Text(t, style: const TextStyle(fontSize: 12)), onDeleted: () => setState(() { _tags.remove(t); widget.onTagsChanged(_tags); }),
+              deleteIcon: const Icon(Icons.close, size: 14), visualDensity: VisualDensity.compact))).toList()))),
+    ]);
+  }
+}
+
+// ============================================================
+//  客户详情页
+// ============================================================
 class _CustomerDetail extends StatefulWidget {
   final Map customer;
   final VoidCallback onUpdate;

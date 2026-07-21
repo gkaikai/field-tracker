@@ -25,7 +25,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
       final r = await dio.get('/api/v1/approvals${_filter == 'all' ? '' : '?status=$_filter'}',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       setState(() { _list = r.data['approvals'] ?? []; _loading = false; });
-    } catch (e) { setState(() => _loading = false); }
+    } catch (e) { debugPrint('加载审批列表失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载失败: $e'))); } }
   }
 
   void _showCreateDialog() {

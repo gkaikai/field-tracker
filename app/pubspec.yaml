@@ -1,7 +1,7 @@
 name: field_tracker
 description: 外勤定位追踪APP - 实时定位、轨迹回放、考勤打卡
 publish_to: 'none'
-version: 1.0.15+13
+version: 1.0.36+34
 
 environment:
   sdk: ^3.3.0
@@ -32,6 +32,7 @@ dependencies:
   permission_handler: ^11.0.0
   # Toast提示
   fluttertoast: ^8.2.0
+  flutter_svg: ^2.0.10+1
   device_info_plus: ^10.0.0
   camera: ^0.10.6
   image: ^4.8.0
@@ -41,6 +42,8 @@ dependencies:
   # APP更新
   package_info_plus: ^8.1.0
   open_file: ^3.5.7
+  # 加速度传感器（静止检测+轨迹平滑）
+  sensors_plus: ^6.0.0
 
 dev_dependencies:
   flutter_test:

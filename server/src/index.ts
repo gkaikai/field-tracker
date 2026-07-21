@@ -47,6 +47,7 @@ app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
   credentials: true,
 }));
+app.set('trust proxy', 1);  // 让 express-rate-limit 能正确识别代理后的 IP
 app.use(express.json({ limit: '1mb' }));
 app.use(requestLogger);
 

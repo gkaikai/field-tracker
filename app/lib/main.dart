@@ -4,11 +4,14 @@ import 'services/location_service.dart';
 import 'services/update_service.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
+import 'pages/forgot_password_page.dart';
 import 'pages/permission_guide_page.dart';
 import 'package:workmanager/workmanager.dart';
+import 'config/app_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppConfig.init();
 
   // 全局异常捕获
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -79,6 +82,12 @@ class _FieldTrackerAppState extends State<FieldTrackerApp> {
         brightness: Brightness.light,
       ),
       home: widget.isLoggedIn ? const HomePage() : const LoginPage(),
+      routes: {
+        '/home': (context) => const HomePage(),
+        '/login': (context) => const LoginPage(),
+        '/permission': (context) => const PermissionGuidePage(),
+        '/forgot-password': (context) => const ForgotPasswordPage(),
+      },
     );
   }
 }

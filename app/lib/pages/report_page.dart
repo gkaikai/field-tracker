@@ -35,13 +35,13 @@ class _ReportPageState extends State<ReportPage> {
         _reports = data['reports'] as List<dynamic>;
         _total = (data['pagination'] as Map)['total'] as int;
       });
-    } catch (_) {}
+    } catch (_) { debugPrint('加载汇报列表失败'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载汇报列表失败'), backgroundColor: Colors.red)); }
     try {
       final statsResp = await _api.get('/api/v1/reports/stats');
       final s = statsResp.data as Map<String, dynamic>;
       _dailyCount = s['daily'] as int;
       _weeklyCount = s['weekly'] as int;
-    } catch (_) {}
+    } catch (_) { debugPrint('加载汇报统计失败'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载汇报统计失败'), backgroundColor: Colors.red)); }
     setState(() => _loading = false);
   }
 

@@ -4,13 +4,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:field_tracker/services/api_service.dart';
 import 'package:field_tracker/services/auth_service.dart';
 import 'package:field_tracker/services/location_service.dart';
+import 'package:field_tracker/config/app_config.dart';
 
 /// 错误处理测试 / Error Handling Tests
 ///
 /// 测试各种异常场景，确保错误回调正确触发、异常被正确处理。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
   group('ApiService - 异常处理 / Error Handling', () {
     test('单例模式 - 多次获取返回同一实例', () {
       final a = ApiService();
@@ -156,7 +160,7 @@ void main() {
     test('onLocationChanged 回调 - 设置后应可被调用', () {
       final loc = LocationService();
       bool callbackFired = false;
-      loc.onLocationChanged = (position) {
+      loc.onLocationChanged = (lat, lng, accuracy, speed) {
         callbackFired = true;
       };
 

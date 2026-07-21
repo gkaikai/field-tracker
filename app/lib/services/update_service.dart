@@ -47,12 +47,15 @@ class UpdateInfo {
   });
 
   /// 当前版本是否低于最新版本
-  bool get hasNewVersion => false; // 由 isNewerThan 计算
+  /// 使用静态方法 isNewerThan() 替代
+  @Deprecated('使用 UpdateService.isNewerThan() 替代')
+  bool get hasNewVersion => UpdateService.isNewerThan(version, '');
 
   factory UpdateInfo.fromJson(Map<String, dynamic> json) {
     return UpdateInfo(
       version: json['version'] as String? ?? '',
       downloadUrl: json['downloadUrl'] as String? ?? '',
+      fastDownloadUrl: json['fastDownloadUrl'] as String?,
       changelog: json['changelog'] as String? ?? '',
       forceUpdate: json['forceUpdate'] as bool? ?? false,
     );

@@ -39,7 +39,7 @@ class _StatsPageState extends State<StatsPage> {
         };
         _loading = false;
       });
-    } catch (e) { setState(() => _loading = false); }
+    } catch (e) { debugPrint('加载统计数据失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载统计数据失败: $e'))); } }
   }
 
   @override

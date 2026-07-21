@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:field_tracker/services/location_uploader.dart';
 import 'package:field_tracker/models/location_point.dart';
+import 'package:field_tracker/config/app_config.dart';
 
 /// 后台任务测试 / Background Task Tests
 ///
@@ -13,6 +14,11 @@ import 'package:field_tracker/models/location_point.dart';
 /// 仅测试 Dart 层逻辑，不涉及平台通道。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
 
   // ================================================================
   //  LocationUploader - 入队与缓存测试

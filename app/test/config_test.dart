@@ -1,7 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:field_tracker/config/app_config.dart';
 
 void main() {
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
   group('AppConfig', () {
     test('baseUrl should be a valid URL', () {
       expect(AppConfig.baseUrl, startsWith('http'));
@@ -14,9 +19,9 @@ void main() {
       expect(AppConfig.amapApiKey, isNotEmpty);
     });
 
-    test('locationIntervalSeconds should be reasonable', () {
-      expect(AppConfig.locationIntervalSeconds, greaterThan(0));
-      expect(AppConfig.locationIntervalSeconds, lessThanOrEqualTo(300));
+    test('movingUploadInterval should be reasonable', () {
+      expect(AppConfig.movingUploadInterval, greaterThan(0));
+      expect(AppConfig.movingUploadInterval, lessThanOrEqualTo(300));
     });
 
     test('notification channel config should be present', () {

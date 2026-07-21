@@ -73,10 +73,17 @@ router.delete('/departments/:id', async (req: Request, res: Response) => {
 
 // GET /api/v1/org/users — 组织内用户列表
 router.get('/users', async (_req: Request, res: Response) => {
-  const { default: authRoutes } = await import('./auth');
-  // 从TEST_USERS构建完整用户列表
-  const { default: authModule } = await import('./auth');
-  res.json(userProfiles);
+  try {
+    const { pgPool } = await import('../config/database');
+    const result = await pgPool.query('SELECT id, phone, name, role, department_id FROM users WHERE is_active = true ORDER BY created_at DESC');
+    res.json(result.rows.map(r => ({
+      id: r.id, name: r.name, phone: r.phone,
+      role: r.role || 'employee', departmentId: r.department_id
+    })));
+  } catch {
+    // 降级到内存数据
+    res.json(userProfiles);
+  }
 });
 
 // DELETE /api/v1/org/users/:phone — 删除用户
@@ -114,7 +121,7 @@ router.get('/locations/online', async (req: Request, res: Response) => {
     });
     const data: any = await resp.json();
     // 附加部门信息
-    const locations = (data.locations || []).map((loc: any) => {
+    const locations = (data.users || []).map((loc: any) => {
       const profile = userProfiles.find(u => u.userId === loc.userId);
       return { ...loc, department: profile?.name || '未分配', departmentId: profile?.departmentId };
     });

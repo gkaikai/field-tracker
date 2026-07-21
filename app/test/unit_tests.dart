@@ -1,8 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:field_tracker/services/auth_service.dart';
 import 'package:field_tracker/config/app_config.dart';
 
 void main() {
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await AppConfig.init();
+  });
   group('手机号验证', () {
     final validPhones = [
       '13800138000', '13912345678', '15012345678',
@@ -39,8 +44,9 @@ void main() {
     });
 
     test('定位间隔应在合理范围', () {
-      expect(AppConfig.locationIntervalSeconds, greaterThanOrEqualTo(10));
-      expect(AppConfig.locationIntervalSeconds, lessThanOrEqualTo(600));
+      expect(AppConfig.movingUploadInterval, greaterThanOrEqualTo(10));
+      expect(AppConfig.stationaryUploadInterval, greaterThanOrEqualTo(30));
+      expect(AppConfig.stationaryUploadInterval, lessThanOrEqualTo(600));
     });
   });
 

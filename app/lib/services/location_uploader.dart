@@ -11,21 +11,24 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import '../models/location_point.dart';
 import '../config/amap_key.dart';
+import '../config/app_config.dart';
 
 class LocationUploader {
   static final LocationUploader _instance = LocationUploader._();
   factory LocationUploader() => _instance;
-  LocationUploader._();
+  LocationUploader._() {
+    _dio = Dio(BaseOptions(
+      baseUrl: AppConfig.baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ));
+  }
 
   /// 认证失效回调（供 UI 层跳转登录页）
   void Function()? onAuthError;
 
   final List<LocationPoint> _pendingBatch = [];
-  final Dio _dio = Dio(BaseOptions(
-    baseUrl: AMapConfig.serverBaseUrl,
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-  ));
+  late Dio _dio;
 
   Timer? _flushTimer;
   bool _uploading = false;
@@ -39,6 +42,11 @@ class LocationUploader {
   /// 设置认证 Token（登录后调用）
   void setToken(String token) {
     _dio.options.headers['Authorization'] = 'Bearer $token';
+  }
+
+  /// 更新服务器地址（用户手动设置后调用）
+  void updateBaseUrl(String url) {
+    _dio.options.baseUrl = url;
   }
 
   // ============================================================
