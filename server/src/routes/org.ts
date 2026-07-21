@@ -97,7 +97,8 @@ router.delete('/users/:phone', async (req: Request, res: Response) => {
     const idx = userProfiles.findIndex(u => u.phone === phone);
     if (idx >= 0) userProfiles.splice(idx, 1);
     res.json({ success: true });
-  } catch {
+  } catch(e) {
+    console.error('[org] 删除用户数据库失败，降级到内存:', e);
     // 降级到内存
     const idx = userProfiles.findIndex(u => u.phone === phone);
     if (idx === -1) return res.status(404).json({ code: '10014', message: '用户不存在' });

@@ -626,6 +626,7 @@ async function searchTrack() {
       </div>`;
 
     if (trackMap) trackMap.destroy();
+    trackMarker = null; trackPolyline = null;
     trackMap = makeMap('trackMapContainer');
     const path = trackPoints.map(p => [p.lng, p.lat]);
     trackPolyline = new AMap.Polyline({ path, strokeColor: '#1677ff', strokeWeight: 3, strokeOpacity: 0.7, map: trackMap });
@@ -658,10 +659,14 @@ function trackAnimMove() {
   const p = trackPoints[trackIdx];
   const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
   if (!trackMarker) {
-    trackMarker = new AMap.CircleMarker({ center: [p.lng, p.lat], radius: 6, strokeColor: color, fillColor: color, fillOpacity: 1, map: trackMap });
+    trackMarker = new AMap.Marker({
+      position: [p.lng, p.lat], map: trackMap,
+      content: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`,
+      offset: new AMap.Pixel(-6, -6)
+    });
   } else {
-    trackMarker.setCenter([p.lng, p.lat]);
-    trackMarker.setOptions({ strokeColor: color, fillColor: color });
+    trackMarker.setPosition([p.lng, p.lat]);
+    trackMarker.setContent(`<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`);
   }
   trackIdx++;
   document.getElementById('trackProgress').textContent = `${trackIdx} / ${trackPoints.length}`;
