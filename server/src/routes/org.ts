@@ -80,18 +80,30 @@ router.get('/users', async (_req: Request, res: Response) => {
       id: r.id, name: r.name, phone: r.phone,
       role: r.role || 'employee', departmentId: r.department_id
     })));
-  } catch {
+  } catch(e) {
+    console.error('[org] 查询用户列表失败，降级到内存:', e);
     // 降级到内存数据
     res.json(userProfiles);
   }
 });
-
-// DELETE /api/v1/org/users/:phone — 删除用户
+// DELETE /api/v1/org/users/:phone — 删除用户（数据库）
 router.delete('/users/:phone', async (req: Request, res: Response) => {
-  const idx = userProfiles.findIndex(u => u.phone === req.params.phone);
-  if (idx === -1) return res.status(404).json({ code: 'NOT_FOUND', message: '用户不存在' });
-  userProfiles.splice(idx, 1);
-  res.json({ success: true });
+  const phone = req.params.phone;
+  try {
+    const { pgPool } = await import('../config/database');
+    const result = await pgPool.query('DELETE FROM users WHERE phone = $1 RETURNING id', [phone]);
+    if (result.rows.length === 0) return res.status(404).json({ code: '10014', message: '用户不存在' });
+    // 同步清理内存
+    const idx = userProfiles.findIndex(u => u.phone === phone);
+    if (idx >= 0) userProfiles.splice(idx, 1);
+    res.json({ success: true });
+  } catch {
+    // 降级到内存
+    const idx = userProfiles.findIndex(u => u.phone === phone);
+    if (idx === -1) return res.status(404).json({ code: '10014', message: '用户不存在' });
+    userProfiles.splice(idx, 1);
+    res.json({ success: true, _fallback: true });
+  }
 });
 
 // PUT /api/v1/org/users/:id — 更新用户部门/角色

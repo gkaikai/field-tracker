@@ -656,9 +656,13 @@ function trackAnimMove() {
   if (!trackPlaying) return;
   if (trackIdx >= trackPoints.length) { trackPlaying=false; if(trackAnim){clearInterval(trackAnim);trackAnim=null;} document.getElementById('playBtn').textContent='▶ 播放'; return; }
   const p = trackPoints[trackIdx];
-  if (trackMarker) trackMap.remove(trackMarker);
   const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
-  trackMarker = new AMap.CircleMarker({ center: [p.lng, p.lat], radius: 6, strokeColor: color, fillColor: color, fillOpacity: 1, map: trackMap });
+  if (!trackMarker) {
+    trackMarker = new AMap.CircleMarker({ center: [p.lng, p.lat], radius: 6, strokeColor: color, fillColor: color, fillOpacity: 1, map: trackMap });
+  } else {
+    trackMarker.setCenter([p.lng, p.lat]);
+    trackMarker.setOptions({ strokeColor: color, fillColor: color });
+  }
   trackIdx++;
   document.getElementById('trackProgress').textContent = `${trackIdx} / ${trackPoints.length}`;
   document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();

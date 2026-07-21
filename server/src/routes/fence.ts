@@ -91,7 +91,7 @@ router.put('/:id',
   adminMiddleware,
   async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { name, centerLat, centerLng, radiusMeters, coordinates, isActive, color } = req.body;
+    const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, isActive, color } = req.body;
 
     const exist = await pgPool.query('SELECT id FROM geo_fences WHERE id = $1', [id]);
     if (exist.rows.length === 0) {
@@ -101,19 +101,21 @@ router.put('/:id',
     const result = await pgPool.query(
       `UPDATE geo_fences SET
         name = COALESCE($1, name),
-        center_lat = COALESCE($2, center_lat),
-        center_lng = COALESCE($3, center_lng),
-        radius_meters = COALESCE($4, radius_meters),
-        polygon_points = COALESCE($5, polygon_points),
-        color = COALESCE($6, color),
-        is_active = COALESCE($7, is_active),
+        shape_type = COALESCE($2, shape_type),
+        center_lat = COALESCE($3, center_lat),
+        center_lng = COALESCE($4, center_lng),
+        radius_meters = COALESCE($5, radius_meters),
+        polygon_points = COALESCE($6, polygon_points),
+        color = COALESCE($7, color),
+        is_active = COALESCE($8, is_active),
         updated_at = NOW()
-       WHERE id = $8
-       RETURNING id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active`,
-      [
-        name ?? null, centerLat ?? null, centerLng ?? null,
-        radiusMeters ?? null, coordinates ? JSON.stringify(coordinates) : null,
-        color ?? null, isActive ?? null, id,
+        WHERE id = $9
+        RETURNING id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active`,
+        [
+         name ?? null, shapeType ?? null,
+         centerLat ?? null, centerLng ?? null,
+         radiusMeters ?? null, coordinates ? JSON.stringify(coordinates) : null,
+         color ?? null, isActive ?? null, id,
       ],
     );
 
