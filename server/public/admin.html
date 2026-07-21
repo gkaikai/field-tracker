@@ -70,7 +70,7 @@ window._AMapSecurityConfig = { securityJsCode: 'f54f44a83e49995348e72713f2ca1b9a
 <div id="mainView">
   <div class="topbar">
     <h2>📊 外勤定位 - 管理后台</h2>
-    <button onclick="localStorage.clear();location.reload()">退出</button>
+    <button onclick="['admin_token','admin_userId','admin_userPhone'].forEach(k=>localStorage.removeItem(k));location.reload()">退出</button>
   </div>
   <div class="sidebar" id="sidebarNav">
     <button class="nav-btn active" onclick="showTab('dashboard')" data-tab="dashboard">📊 数据看板</button>

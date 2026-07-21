@@ -23,6 +23,15 @@ async function api(method, path, data) {
   const opts = { method, headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } };
   if (data) opts.body = JSON.stringify(data);
   const r = await fetch(path, opts);
+  if (r.status === 401) {
+    localStorage.removeItem('admin_token');
+    localStorage.removeItem('admin_userId');
+    localStorage.removeItem('admin_userPhone');
+    TOKEN = '';
+    document.getElementById('loginView').style.display = 'block';
+    document.getElementById('mainView').style.display = 'none';
+    throw new Error('登录已过期，请重新登录');
+  }
   if (!r.ok) { let msg; try { const e = await r.json(); msg = e.message || e.code; } catch (_) { msg = await r.text(); } throw new Error(`${r.status}: ${msg}`); }
   return r.json();
 }

@@ -67,7 +67,10 @@ router.get('/', async (req: Request, res: Response) => {
 
 // POST /api/v1/customers — 创建客户
 router.post('/',
-  validate([body('name').notEmpty().withMessage('客户名称不能为空')]),
+  validate([
+    body('name').notEmpty().withMessage('客户名称不能为空'),
+    body('phone').optional().matches(/^1\d{10}$/).withMessage('手机号格式不正确'),
+  ]),
   async (req: Request, res: Response) => {
     const user = (req as any).user as JwtPayload;
     const { name, phone, address, lat, lng, tags, remark } = req.body;
