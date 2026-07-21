@@ -8,6 +8,17 @@ let trackAnim = null, trackPlaying = false, trackIdx = 0, trackSpeed = 1;
 let trackPoints = [];
 const TRACK_SPEEDS = [1, 2, 5, 10];
 
+// 从localStorage恢复登录
+const savedToken = localStorage.getItem('admin_token');
+if (savedToken) {
+  TOKEN = savedToken;
+  window._userId = localStorage.getItem('admin_userId') || '';
+  window._userPhone = localStorage.getItem('admin_userPhone') || '';
+  document.getElementById('loginView').style.display = 'none';
+  document.getElementById('mainView').style.display = 'block';
+  showTab('dashboard');
+}
+
 async function api(method, path, data) {
   const opts = { method, headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } };
   if (data) opts.body = JSON.stringify(data);
@@ -27,6 +38,9 @@ async function login() {
     TOKEN = data.token;
     window._userId = data.userId;
     window._userPhone = data.phone;
+    localStorage.setItem('admin_token', data.token);
+    localStorage.setItem('admin_userId', data.userId);
+    localStorage.setItem('admin_userPhone', data.phone);
     document.getElementById('loginView').style.display = 'none';
     document.getElementById('mainView').style.display = 'block';
     showTab('dashboard');
@@ -414,10 +428,14 @@ async function loadCustomers() {
 }
 window.addCustomer = async function() {
   const name = document.getElementById('custName').value.trim();
+  const phone = document.getElementById('custPhone').value.trim();
+  const btn = document.querySelector('[onclick="addCustomer()"]');
   if (!name) { document.getElementById('custResult').innerHTML = '❌ 名称必填'; return; }
+  if (phone && (!/^1\d{10}$/.test(phone))) { document.getElementById('custResult').innerHTML = '❌ 手机号格式不正确（11位数字）'; return; }
+  btn.disabled = true; btn.textContent = '⏳ 保存中...';
   try {
     await api('POST', '/api/v1/customers', {
-      name, phone: document.getElementById('custPhone').value,
+      name, phone,
       address: document.getElementById('custAddr').value,
       lat: parseFloat(document.getElementById('custLat').value)||22.55,
       lng: parseFloat(document.getElementById('custLng').value)||114.08,
@@ -425,8 +443,15 @@ window.addCustomer = async function() {
       remark: document.getElementById('custRemark').value,
     });
     document.getElementById('custResult').innerHTML = '✅ 添加成功';
+    // 清空表单
+    document.getElementById('custName').value = '';
+    document.getElementById('custPhone').value = '';
     loadCustomers();
-  } catch(e) { document.getElementById('custResult').innerHTML = `❌ ${e.message}`; }
+  } catch(e) {
+    document.getElementById('custResult').innerHTML = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '➕ 添加';
+  }
 };
 window.deleteCustomer = async function(id) {
   if (!confirm('确定删除？')) return;
@@ -490,14 +515,24 @@ window.addUser = async function() {
   if (!/^1\d{10}$/.test(phone)) { resultEl.innerHTML = '❌ 手机号必须以1开头'; return; }
   const validPrefixes = /^1(3\d|4[5-9]|5[0-35-9]|6[2567]|7[0-8]|8\d|9[0-35-9])\d{8}$/;
   if (!validPrefixes.test(phone)) { resultEl.innerHTML = '❌ 手机号号段无效（如13x/15x/18x等）'; return; }
+  const btn = document.querySelector('[onclick="addUser()"]');
+  btn.disabled = true; btn.textContent = '⏳...';
   try {
     await api('POST', '/api/v1/auth/register', {
       phone, password: document.getElementById('userPwd').value || 'test123456',
       name: document.getElementById('userName').value,
       role: document.getElementById('userRole').value,
     });
-    document.getElementById('userResult').innerHTML = '✅ 添加成功';
-  } catch(e) { document.getElementById('userResult').innerHTML = `❌ ${e.message}`; }
+    // 先更新列表，再设提示
+    await loadUsers();
+    resultEl.innerHTML = '✅ 添加成功';
+    document.getElementById('userName').value = '';
+    document.getElementById('userPhone').value = '';
+  } catch(e) {
+    resultEl.innerHTML = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '➕ 添加';
+  }
 };
 window.deleteUser = async function(phone) {
   if (!confirm('确定删除？')) return;
