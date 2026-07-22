@@ -67,14 +67,14 @@ class AppConfig {
   //  加速度传感器参数
   // ============================================================
 
-  /// 加速度采样间隔（秒）
-  static const int accelerometerSampleInterval = 3;
+  /// 加速度采样间隔（毫秒）
+  static const int accelerometerSampleIntervalMs = 500; // 0.5秒
 
   /// 加速度方差 - 静止阈值
   static const double accelStillThreshold = 1.5;
 
-  /// 加速度方差 - 行走阈值
-  static const double accelWalkThreshold = 10.0;
+  /// 加速度方差 - 行走阈值（正常步行净加速度波动≈2-5 m/s²）
+  static const double accelWalkThreshold = 3.5;
 
   /// 连续几次采样判定稳定结果
   static const int accelConsecutiveSamples = 3;

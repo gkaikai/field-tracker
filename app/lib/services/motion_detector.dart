@@ -69,8 +69,8 @@ class MotionDetector {
 
     try {
       _accelSubscription = accelerometerEventStream(
-        samplingPeriod: const Duration(milliseconds: 
-          AppConfig.accelerometerSampleInterval * 1000),
+        samplingPeriod: Duration(milliseconds: 
+          AppConfig.accelerometerSampleIntervalMs),
       ).listen(
         (AccelerometerEvent event) {
           _handleAccelerometer(event);
@@ -153,11 +153,13 @@ class MotionDetector {
 
   /// 传入本次GPS数据，更新活动状态
   /// [speed] GPS速度（m/s），null=丢失
+  /// [gpsLost] GPS是否丢失（独立参数，避免speed=null被误判为静止）
   /// [cumulativeDisplacement] 从静止基准点的累计位移（米）
   /// [currentLat] 当前纬度（用于更新基准点）
   /// [currentLng] 当前经度
   void updateState({
     required double? speed,
+    required bool gpsLost,
     required double cumulativeDisplacement,
     double? currentLat,
     double? currentLng,
@@ -165,7 +167,7 @@ class MotionDetector {
     final now = DateTime.now();
 
     // ── A) GPS速度 > 阈值 → 直接MOVING ──
-    if (speed != null && speed > AppConfig.movingSpeedThreshold) {
+    if (!gpsLost && speed != null && speed > AppConfig.movingSpeedThreshold) {
       _transitionTo(MotionState.moving);
       _uncertainStartTime = null;
       _lowSpeedStartTime = null;
@@ -193,8 +195,15 @@ class MotionDetector {
       return;
     }
 
-    // ── C) 低速度状态 ──
-    final bool isLowSpeed = (speed == null) || (speed <= AppConfig.stationarySpeedThreshold);
+    // ── C) GPS丢失时的特殊处理 ──
+    if (gpsLost) {
+      // GPS丢失时不主动降级，保持当前状态
+      // 由累计位移兜底来判断是否仍在移动
+      return;
+    }
+
+    // ── D) 低速度状态（GPS有信号但速度低） ──
+    final bool isLowSpeed = speed != null && speed <= AppConfig.stationarySpeedThreshold;
     final bool isNoAccel = !_personMoving;
     final bool isSmallDisplacement = cumulativeDisplacement < AppConfig.cumulativeStillThreshold;
 

@@ -32,6 +32,8 @@ class LocationService {
   StreamSubscription<Position>? _positionStream;
   Timer? _uploadTimer;
   Timer? _motionCheckTimer; // 定期检查静止基准点位移
++ Timer? _gpsWatchdog;      // GPS健康看门狗：超时自动重启流
++ DateTime? _lastGpsTime;   // 上次收到GPS位置的时间
   bool _isRunning = false;
 
   // ─── 位置缓存队列 ───
@@ -166,6 +168,12 @@ class LocationService {
       (_) => _checkMotionState(),
     );
 
++    // 9. GPS健康看门狗：60秒无位置数据则重启GPS流
++    _gpsWatchdog = Timer.periodic(
++      const Duration(seconds: 30),
++      (_) => _checkGpsHealth(),
++    );
+
     _isRunning = true;
     return true;
   }
@@ -177,6 +185,8 @@ class LocationService {
     _uploadTimer = null;
     _motionCheckTimer?.cancel();
     _motionCheckTimer = null;
++   _gpsWatchdog?.cancel();
++   _gpsWatchdog = null;
     _positionBuffer.clear();
     _motion.stop();
     _recentPositions.clear();
@@ -207,6 +217,7 @@ class LocationService {
         _gpsLost = false;
         _gpsLostSince = null;
       }
++     _lastGpsTime = DateTime.now();
 
       // WGS-84 → GCJ-02 转换
       final (gcjLat, gcjLng) = wgs84ToGcj02(position.latitude, position.longitude);
@@ -228,8 +239,19 @@ class LocationService {
 
         // 检查P2是否为孤立漂移点
         if (_isDriftPoint(_recentPositions[0], p2, _recentPositions[2])) {
-          _rejectedPositions++;
-          return;
+          // 加速度+累计位移验证：是真移动还是漂移
+          final gpsSpeed = position.speed ?? 0;
+          final disp = _motion.calculateDisplacement(
+            converted.latitude, converted.longitude,
+          );
+          final bool isReal = _motion.hasAccelActivity ||
+              disp > AppConfig.cumulativeMoveThreshold;
+          if (gpsSpeed < 0.5 && !isReal) {
+            // 真漂移：移除并计数
+            _removeFromBuffer(p2.latitude, p2.longitude);
+            _recentPositions.removeAt(1);
+            _rejectedPositions++;
+          }
         }
       }
 
@@ -278,8 +300,8 @@ class LocationService {
   /// 从缓冲区移除指定坐标的点
   void _removeFromBuffer(double lat, double lng) {
     _positionBuffer.removeWhere((r) =>
-        (r.lat - lat).abs() < 0.001 &&
-        (r.lng - lng).abs() < 0.001);
+        (r.lat - lat).abs() < 0.0001 &&
+        (r.lng - lng).abs() < 0.0001);
   }
 
   // ============================================================
@@ -292,6 +314,7 @@ class LocationService {
     );
     _motion.updateState(
       speed: pos.speed,
+      gpsLost: false,
       cumulativeDisplacement: displacement,
       currentLat: pos.latitude,
       currentLng: pos.longitude,
@@ -307,11 +330,45 @@ class LocationService {
     );
     _motion.updateState(
       speed: _currentPosition!.speed,
+      gpsLost: _gpsLost,
       cumulativeDisplacement: displacement,
       currentLat: _currentPosition!.latitude,
       currentLng: _currentPosition!.longitude,
     );
   }
+
++ /// GPS健康检查：如果60秒内没有收到位置，自动重启GPS流
++ void _checkGpsHealth() {
++   if (_lastGpsTime == null) return;
++   final elapsed = DateTime.now().difference(_lastGpsTime!);
++   if (elapsed.inSeconds < 60) return; // 还在正常接收
++   
++   debugPrint('[LocationService] GPS流已静默${elapsed.inSeconds}秒，正在重启...');
++   onError?.call('GPS流超时，正在重启...');
++   
++   // 取消旧流
++   _positionStream?.cancel();
++   _positionStream = null;
++   
++   // 重新创建订阅
++   try {
++     _positionStream = Geolocator.getPositionStream(
++       locationSettings: const LocationSettings(
++         accuracy: LocationAccuracy.bestForNavigation,
++         distanceFilter: 0,
++       ),
++     ).listen(
++       _onGpsPosition,
++       onError: (error) {
++         onError?.call('定位流错误: $error');
++       },
++     );
++     debugPrint('[LocationService] GPS流已重启');
++     _lastGpsTime = DateTime.now(); // 防止重复重启
++   } catch (e) {
++     debugPrint('[LocationService] GPS流重启失败: $e');
++   }
++ }
 
   // ============================================================
   //  缓存 & 上报

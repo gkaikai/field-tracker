@@ -29,6 +29,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
   bool _isLoading = false;
   String? _error;
   double _sliderValue = 0;
+  bool _isLoadingTrack = false; // 请求去重锁
 
   AMapController? _mapController;
   Set<Polyline> _polylines = {};
@@ -49,14 +50,25 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     super.initState();
     _loadTrack();
     _loadFences();
+    // 每13秒自动刷新轨迹（12秒采集一次+1秒余量）
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 13),
+      (_) {
+        if (!_isPlaying) _loadTrack(isAutoRefresh: true);
+      },
+    );
   }
-
-  Future<void> _loadTrack() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _sliderValue = 0;
-    });
+  Future<void> _loadTrack({bool isAutoRefresh = false}) async {
+    if (_isLoadingTrack) return; // 请求去重
+    _isLoadingTrack = true;
+    
+    if (!isAutoRefresh) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _sliderValue = 0;
+      });
+    }
 
     try {
       final dateStr =
@@ -65,23 +77,38 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       final userId = auth.userId ?? 'me';
       final resp = await _api
           .get('/api/v1/location/track/$userId', query: {'date': dateStr});
+      if (!mounted) { _isLoadingTrack = false; return; }
       final data = resp.data as Map<String, dynamic>;
       final points =
           (data['points'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ??
               [];
 
+      if (!mounted) { _isLoadingTrack = false; return; }
+
       setState(() {
         _points = points;
         _isLoading = false;
+        _sliderValue = _sliderValue.clamp(0, points.length > 0 ? (points.length - 1).toDouble() : 0);
       });
 
-      _updateMap();
-    } catch (e) {
-      setState(() {
-        _error = '加载轨迹失败: $e';
-        _isLoading = false;
-      });
+      try {
+        _updateMap(fitToTrack: !isAutoRefresh);
+      } catch (mapErr, mapSt) {
+        print('=== _updateMap error ===\n$mapErr\n$mapSt');
+      }
+    } catch (e, st) {
+      if (!mounted) { _isLoadingTrack = false; return; }
+      final detail = e.toString();
+      final errMsg = '加载轨迹失败${detail.isNotEmpty ? ': [${e.runtimeType}] $detail' : ''}';
+      print('=== _loadTrack error ===\n$e\n$st');
+      if (!isAutoRefresh) {
+        setState(() {
+          _error = errMsg;
+          _isLoading = false;
+        });
+      }
     }
+    _isLoadingTrack = false;
   }
 
   /// 加载电子围栏并渲染为红色多边形
@@ -191,7 +218,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     return const Color(0xFFF44336).withOpacity(0.7); // 红
   }
 
-  void _updateMap() {
+  void _updateMap({bool fitToTrack = true}) {
     if (_points.isEmpty) return;
 
     final polylines = <Polyline>{};
@@ -207,6 +234,12 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         final lng1 = p1['lng'] as double;
         final lat2 = p2['lat'] as double;
         final lng2 = p2['lng'] as double;
+
+        // 时间间隔检查：超过5分钟不连线（防止数据空白导致的大折线）
+        final t1 = p1['timestamp'] as int;
+        final t2 = p2['timestamp'] as int;
+        final gapSec = (t2 - t1).abs() ~/ 1000;
+        if (gapSec > 300) continue; // 跳过断点段，不画线
 
         // 累计距离
         totalDistKm += _haversineDistance(lat1, lng1, lat2, lng2) / 1000.0;
@@ -279,11 +312,13 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
           : 0;
     });
 
-    _fitMapToTrack(
-      _points
-          .map((p) => LatLng(p['lat'] as double, p['lng'] as double))
-          .toList(),
-    );
+    if (fitToTrack) {
+      _fitMapToTrack(
+        _points
+            .map((p) => LatLng(p['lat'] as double, p['lng'] as double))
+            .toList(),
+      );
+    }
   }
 
   void _fitMapToTrack(List<LatLng> points) {
@@ -383,6 +418,11 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
 
   bool _isPlaying = false;
   Timer? _playTimer;
+  double _playSpeed = 1.0; // 播放倍速: 1x, 2x, 4x, 8x
+  static const List<double> _speedOptions = [1.0, 2.0, 4.0, 8.0];
+
+  // 自动刷新（实时轨迹）
+  Timer? _autoRefreshTimer;
 
   void _togglePlayback() {
     if (_isPlaying) {
@@ -393,7 +433,8 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     if (_points.length < 2) return;
 
     setState(() => _isPlaying = true);
-    const interval = Duration(milliseconds: 500);
+    final intervalMs = (500 / _playSpeed).round();
+    final interval = Duration(milliseconds: intervalMs.clamp(16, 5000));
 
     _playTimer = Timer.periodic(interval, (timer) {
       if (!mounted) {
@@ -406,6 +447,11 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         setState(() {
           _sliderValue = (_points.length - 1).toDouble();
           _isPlaying = false;
+          // 重置播放起点，下次播放从头开始
+        });
+        // 播放结束后重置到起点
+        Future.delayed(Duration.zero, () {
+          if (mounted) setState(() => _sliderValue = 0);
         });
         return;
       }
@@ -563,6 +609,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
   @override
   void dispose() {
     _playTimer?.cancel();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -586,6 +633,11 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
           ),
           IconButton(
               icon: const Icon(Icons.date_range), onPressed: _selectDate),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '手动刷新',
+            onPressed: () => _loadTrack(isAutoRefresh: false),
+          ),
         ],
       ),
       body: Column(
@@ -689,8 +741,10 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                               hasAgree: true,
                             ),
                             initialCameraPosition: CameraPosition(
-                              target: LatLng(currentPos!['lat'] as double,
-                                  currentPos['lng'] as double),
+                              target: LatLng(
+                                (currentPos?['lat'] as double?) ?? _points.first['lat'] as double,
+                                (currentPos?['lng'] as double?) ?? _points.first['lng'] as double,
+                              ),
                               zoom: 15,
                             ),
                             onMapCreated: (controller) {
@@ -899,6 +953,26 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // 倍速选择
+                      ..._speedOptions.map((speed) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          label: Text('${speed}x', style: TextStyle(
+                            fontSize: 12,
+                            color: _isPlaying && _playSpeed != speed ? Colors.grey : null,
+                          )),
+                          selected: _playSpeed == speed,
+                          selectedColor: Colors.blue.withOpacity(0.2),
+                          backgroundColor: _isPlaying && _playSpeed != speed
+                              ? Colors.grey.withOpacity(0.1)
+                              : null,
+                          onSelected: _isPlaying ? null : (v) {
+                            if (v) setState(() => _playSpeed = speed);
+                          },
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )),
+                      const SizedBox(width: 8),
                       IconButton(
                         icon: Icon(
                             _isPlaying
