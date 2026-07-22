@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'services/auth_service.dart';
-import 'services/location_service.dart';
 import 'services/update_service.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
@@ -8,10 +7,15 @@ import 'pages/forgot_password_page.dart';
 import 'pages/permission_guide_page.dart';
 import 'package:workmanager/workmanager.dart';
 import 'config/app_config.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
+import 'package:field_tracker/services/background_location_service.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.init();
+
+  // 初始化高德定位SDK
+  await AmapLocationService().initSdk();
 
   // 全局异常捕获
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -52,7 +56,6 @@ class _FieldTrackerAppState extends State<FieldTrackerApp> {
   @override
   void initState() {
     super.initState();
-    // 等框架构建完成后检查更新
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkUpdate();
     });

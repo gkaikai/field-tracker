@@ -9,8 +9,9 @@ import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
 import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
-import '../services/background_location_service.dart';
-import '../services/location_service.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
+import 'package:field_tracker/services/background_location_service.dart';
+import 'package:field_tracker/services/location_service.dart' as old_loc;
 import '../services/attendance_service.dart';
 import '../services/api_service.dart';
 import '../services/error_codes.dart';
@@ -54,8 +55,8 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _initLocation() async {
-    // 用LocationService替代Geolocator
-    final loc = LocationService();
+    // 用高德定位服务获取位置
+    final loc = AmapLocationService();
     if (loc.isRunning) {
       // 如果已经启动，直接取最新位置
       if (loc.currentLat != null && loc.currentLng != null) {
@@ -288,7 +289,7 @@ class _MapPageState extends State<MapPage> {
         setState(() {
           _customerMarkers = markers;
           _statusText =
-              '${_currentLat != null ? '${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}' : '定位中...'} | 客户 ${markers.length}';
+              '${_currentLat != null ? '${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}' : '定位中...'}${markers.length > 0 ? ' | 客户 ${markers.length}' : ''}';
         });
       }
     } catch (e) {
@@ -464,7 +465,7 @@ class _MapPageState extends State<MapPage> {
                           builder: (_) => const AttendancePage()),
                     ),
                     icon: const Icon(Icons.timeline),
-                    label: const Text('考勤轨迹'),
+                    label: const Text('考勤记录'),
                   ),
                 ),
                 const SizedBox(width: 12),

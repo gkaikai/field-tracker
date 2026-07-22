@@ -4,9 +4,9 @@ import 'package:dio/dio.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
-import '../services/location_service.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
+import 'package:field_tracker/services/background_location_service.dart';
 import '../services/auth_service.dart';
-import '../services/background_location_service.dart';
 import '../config/app_config.dart';
 import 'map_page.dart';
 import 'attendance_page.dart';
@@ -168,7 +168,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              LocationService().stopTracking();
+              AmapLocationService().stopTracking();
               await stopBackgroundLocationService();
               await _auth.logout();
               if (!context.mounted) return;

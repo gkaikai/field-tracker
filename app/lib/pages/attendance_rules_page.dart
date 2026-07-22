@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../services/auth_service.dart';
-import '../services/location_service.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
 
 class AttendanceRulesPage extends StatefulWidget {
   const AttendanceRulesPage({super.key});
@@ -55,7 +55,7 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
         const SizedBox(height: 8),
         TextButton.icon(
           onPressed: () {
-            final loc = LocationService();
+            final loc = AmapLocationService();
             final lat = loc.currentLat;
             final lng = loc.currentLng;
             if (lat != null && lng != null) {

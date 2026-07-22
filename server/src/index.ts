@@ -67,8 +67,6 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
-app.use(express.static('public'));
-
 // ---- HTTP 路由 ----
 import authRoutes from './routes/auth';
 import locationRoutes from './routes/location';
@@ -97,6 +95,12 @@ app.use('/api/v1/geocode', geocodeRoutes);
 // 提供静态文件服务（管理后台）
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
+
+// APK下载路由（attachment方式下载，防止乱码）
+app.get('/download-apk', (req, res) => {
+  const filePath = path.join(__dirname, '../public/ft-v1.0.40.apk');
+  res.download(filePath, 'field-tracker-v1.0.40.apk');
+});
 
 // 管理后台入口
 app.get('/admin', (req, res) => {

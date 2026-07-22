@@ -658,9 +658,11 @@ async function searchTrack() {
       </div>
       <div id="trackReplayControls" style="display:flex;align-items:center;gap:12px;margin-bottom:8px;background:white;padding:10px 16px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
         <button id="playBtn" onclick="toggleTrackPlay()" style="min-width:80px">▶ 播放</button>
+        <span style="font-size:13px;color:#666;white-space:nowrap" id="trackProgressLabel">0/${trackPoints.length}</span>
+        <input type="range" id="trackSlider" min="0" max="${trackPoints.length-1}" value="0"
+          oninput="trackSliderChange(this.value)" style="flex:1;cursor:pointer" />
         <span>速度:</span>
         ${TRACK_SPEEDS.map(s => `<button class="speed-btn${s===1?' active':''}" onclick="setTrackSpeed(${s})" style="min-width:40px;padding:4px 8px">${s}x</button>`).join('')}
-        <span id="trackProgress" style="color:#666;font-size:13px;margin-left:auto">0 / ${trackPoints.length}</span>
         <span id="trackTimeLabel" style="color:#999;font-size:12px"></span>
       </div>
       <div id="trackMapContainer" style="height:400px;border-radius:10px;overflow:hidden;border:1px solid #ddd"></div>
@@ -713,7 +715,26 @@ function trackAnimMove() {
     trackMarker.setContent(`<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`);
   }
   trackIdx++;
-  document.getElementById('trackProgress').textContent = `${trackIdx} / ${trackPoints.length}`;
+  document.getElementById('trackProgressLabel').textContent = `${trackIdx} / ${trackPoints.length}`;
+  document.getElementById('trackSlider').value = trackIdx;
+  document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();
+}
+function trackSliderChange(val) {
+  trackIdx = parseInt(val);
+  const p = trackPoints[trackIdx];
+  if (!p) return;
+  const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
+  if (!trackMarker) {
+    trackMarker = new AMap.Marker({
+      position: [p.lng, p.lat], map: trackMap,
+      content: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`,
+      offset: new AMap.Pixel(-6, -6)
+    });
+  } else {
+    trackMarker.setPosition([p.lng, p.lat]);
+    trackMarker.setContent(`<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`);
+  }
+  document.getElementById('trackProgressLabel').textContent = `${trackIdx} / ${trackPoints.length}`;
   document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();
 }
 function setTrackSpeed(speed) {

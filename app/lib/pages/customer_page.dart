@@ -181,11 +181,15 @@ class _CustomerPageState extends State<CustomerPage> {
               final phone = pc.text.trim();
               if (phone.isNotEmpty) {
                 final digitsOnly = phone.replaceAll(RegExp(r'[^\d]'), '');
-                // 中国大陆手机号必须是11位数字，以1开头
-                if (phone.length != digitsOnly.length || !RegExp(r'^1\d{10}$').hasMatch(digitsOnly)) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('手机号格式不正确（中国大陆手机号需为11位数字，以1开头）')),
-                  );
+                // 支持5~20位数字（国际号码格式）
+                if (phone.length != digitsOnly.length || digitsOnly.length < 5 || digitsOnly.length > 20) {
+                  if (ctx.mounted) {
+                    showDialog(context: ctx, builder: (dCtx) => AlertDialog(
+                      title: const Text('提示'),
+                      content: const Text('手机号格式不正确（请输入5~20位数字，支持国际号码）'),
+                      actions: [TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('确定'))],
+                    ));
+                  }
                   return;
                 }
               }
@@ -343,12 +347,25 @@ class _CustomerDetailState extends State<_CustomerDetail> {
 
   void _addVisit() async {
     final cc = TextEditingController();
-    final text = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('记录拜访'),
-      content: TextField(controller: cc, decoration: const InputDecoration(labelText: '拜访内容', hintText: '描述...', border: OutlineInputBorder()), maxLines: 3),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-        FilledButton(onPressed: cc.text.trim().isEmpty ? null : () => Navigator.pop(ctx, cc.text), child: const Text('提交'))],
-    ));
+    bool canSubmit = false;
+    final text = await showDialog<String>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+      return AlertDialog(
+        title: const Text('记录拜访'),
+        content: TextField(
+          controller: cc,
+          decoration: const InputDecoration(labelText: '拜访内容', hintText: '描述...', border: OutlineInputBorder()),
+          maxLines: 3,
+          onChanged: (v) => setS(() => canSubmit = v.trim().isNotEmpty),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: canSubmit ? () => Navigator.pop(ctx, cc.text) : null,
+            child: const Text('提交'),
+          ),
+        ],
+      );
+    }));
     if (text == null) return;
     try {
       await _api.post('/api/v1/customers/visit', data: {

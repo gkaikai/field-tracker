@@ -10,7 +10,7 @@ import 'package:amap_flutter_base/amap_flutter_base.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
-import '../services/location_service.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
 
 class FencePage extends StatefulWidget {
   const FencePage({super.key});
@@ -82,7 +82,7 @@ class _FencePageState extends State<FencePage>
 
   /// 初始化地图位置到当前用户所在位置
   Future<void> _initLocation() async {
-    final loc = LocationService();
+    final loc = AmapLocationService();
     final lat = loc.currentLat;
     final lng = loc.currentLng;
     if (lat != null && lng != null) {
