@@ -1,11 +1,12 @@
-// 国产ROM后台权限引导页
+// 权限引导页 — 一键跳转系统设置
 //
-// 根据检测到的手机品牌，显示对应厂商的后台保活设置路径
-// 用户在设置完成后点击"已完成"，标记权限已配置
+// 第一次安装打开时自动弹出，每个步骤带"前往设置"按钮，
+// 一点直接跳到对应的系统设置页面，用户只需点开关即可。
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/device_info.dart';
+import '../utils/system_settings.dart';
 
 class PermissionGuidePage extends StatefulWidget {
   const PermissionGuidePage({super.key});
@@ -16,151 +17,142 @@ class PermissionGuidePage extends StatefulWidget {
 
 class _PermissionGuidePageState extends State<PermissionGuidePage> {
   String _brand = '检测中...';
-  String _title = '';
-  String _steps = '';
   bool _loading = true;
+
+  // 完成状态
+  bool _locationDone = false;
+  bool _batteryDone = false;
+  bool _bgDone = false;
 
   @override
   void initState() {
     super.initState();
-    _loadGuide();
+    _init();
   }
 
-  Future<void> _loadGuide() async {
-    final brand = await DeviceInfo.getBrand();
-    final guide = await DeviceInfo.getGuideInfo();
-    setState(() {
-      _brand = brand;
-      _title = guide['title'] ?? '';
-      _steps = guide['steps'] ?? '';
-      _loading = false;
-    });
+  Future<void> _init() async {
+    try {
+      final brand = await DeviceInfo.getBrand();
+      setState(() {
+        _brand = brand;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('[PermissionGuide] 检测设备信息失败: $e');
+      setState(() {
+        _brand = '未知';
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('后台权限设置 · $_brand'),
+        title: Text('权限设置引导 · $_brand'),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               children: [
-                // 品牌图标
-                Center(
-                  child: Icon(
-                    _getBrandIcon(_brand),
-                    size: 64,
-                    color: _getBrandColor(_brand),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Center(
-                  child: Text(
-                    '检测到您的手机是 $_brand',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w500),
-                  ),
+                // 顶部说明
+                const Center(
+                  child: Icon(Icons.handyman, size: 48, color: Colors.blue),
                 ),
                 const SizedBox(height: 8),
                 const Center(
                   child: Text(
-                    '为了在后台持续记录位置，请按以下步骤设置',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    '完成以下设置，APP才能后台持续定位',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                   ),
                 ),
                 const SizedBox(height: 24),
 
-                // 设置步骤
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue[200]!),
-                  ),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: Colors.blue[700], size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            _title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[800],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _steps,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.8,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ],
-                  ),
+                // ── 步骤1：定位权限 ──
+                _buildStepCard(
+                  icon: Icons.my_location,
+                  title: '允许定位权限',
+                  subtitle: '用于实时追踪您的当前位置',
+                  done: _locationDone,
+                  buttonText: '前往设置',
+                  onTap: () async {
+                    await SystemSettings.openAppSettings();
+                    setState(() => _locationDone = true);
+                    _checkAllDone();
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // ── 步骤2：忽略电池优化 ──
+                _buildStepCard(
+                  icon: Icons.battery_charging_full,
+                  title: '忽略电池优化',
+                  subtitle: '防止系统在后台时自动关闭APP定位',
+                  done: _batteryDone,
+                  buttonText: '前往设置',
+                  onTap: () async {
+                    await SystemSettings.requestBatteryOptimization();
+                    setState(() => _batteryDone = true);
+                    _checkAllDone();
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // ── 步骤3：后台运行权限 ──
+                _buildStepCard(
+                  icon: Icons.settings,
+                  title: '允许后台运行',
+                  subtitle: _getBrandBgHint(_brand),
+                  done: _bgDone,
+                  buttonText: '前往设置',
+                  onTap: () async {
+                    await SystemSettings.openAppSettings();
+                    setState(() => _bgDone = true);
+                    _checkAllDone();
+                  },
                 ),
                 const SizedBox(height: 24),
 
-                // 提示信息
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.amber[50],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.amber[200]!),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.lightbulb_outline,
-                          color: Colors.amber[700], size: 20),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          '不同系统版本界面可能略有差异，核心是保证应用在 "设置→应用管理→本应用" 中被允许后台运行且不被省电优化限制。',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
+                // ── 额外：分品牌说明 ──
+                _buildBrandGuide(_brand),
+                const SizedBox(height: 24),
 
-                // 已完成按钮
+                // ── 完成按钮 ──
                 SizedBox(
+                  width: double.infinity,
                   height: 48,
                   child: ElevatedButton.icon(
                     onPressed: _onDone,
-                    icon: const Icon(Icons.check_circle),
-                    label: const Text('我已按以上步骤完成设置',
-                        style: TextStyle(fontSize: 16)),
+                    icon: Icon(
+                      Icons.check_circle,
+                      color: _allDone() ? Colors.white : Colors.grey[400],
+                    ),
+                    label: Text(
+                      _allDone() ? '全部完成，开始使用' : '稍后再说',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: _allDone() ? Colors.white : Colors.grey[600],
+                      ),
+                    ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
+                      backgroundColor:
+                          _allDone() ? Colors.green : Colors.grey[200],
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(24),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Center(
                   child: TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('稍后再说', style: TextStyle(fontSize: 14)),
+                    child: const Text('跳过', style: TextStyle(fontSize: 14)),
                   ),
                 ),
               ],
@@ -168,57 +160,171 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
     );
   }
 
-  Future<void> _onDone() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('background_guide_done', true);
-    await prefs.setString('device_brand', _brand);
+  Widget _buildStepCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool done,
+    required String buttonText,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      elevation: done ? 1 : 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: done ? Colors.green[50] : Colors.blue[50],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: done ? Colors.green : Colors.blue[700], size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: done ? Colors.green[700] : null)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                ],
+              ),
+            ),
+            if (done)
+              const Icon(Icons.check_circle, color: Colors.green, size: 24)
+            else
+              TextButton(
+                onPressed: onTap,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.blue[50],
+                  foregroundColor: Colors.blue[700],
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  minimumSize: Size.zero,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                ),
+                child: Text(buttonText, style: const TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
-    if (mounted) {
+  Widget _buildBrandGuide(String brand) {
+    final guide = _getBrandGuideMap(brand);
+    if (guide == null) return const SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.amber[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber[200]!),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.amber[700], size: 18),
+              const SizedBox(width: 8),
+              Text(guide['title']!,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: Colors.amber[900])),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            guide['steps']!,
+            style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.6),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Map<String, String>? _getBrandGuideMap(String brand) {
+    switch (brand) {
+      case 'Huawei':
+        return {
+          'title': '华为额外设置',
+          'steps': '进入「设置→应用→应用管理→本应用→耗电详情」，关闭「自动管理」，手动开启三项权限。',
+        };
+      case 'Xiaomi':
+        return {
+          'title': '小米额外设置',
+          'steps': '进入「设置→应用设置→应用管理→本应用→省电策略」，选择「无限制」。同时开启「自启动」。',
+        };
+      case 'OPPO':
+        return {
+          'title': 'OPPO额外设置',
+          'steps': '进入「设置→应用→应用管理→本应用→耗电管理」，开启「允许完全后台运行」。',
+        };
+      default:
+        return null;
+    }
+  }
+
+  String _getBrandBgHint(String brand) {
+    switch (brand) {
+      case 'Huawei':
+        return '在应用详情中关闭「自动管理」并开启后台活动';
+      case 'Xiaomi':
+        return '在应用详情中将省电策略设为「无限制」';
+      case 'OPPO':
+        return '在应用详情中开启「允许完全后台运行」';
+      default:
+        return '在应用详情中允许后台运行';
+    }
+  }
+
+  bool _allDone() => _locationDone && _batteryDone && _bgDone;
+
+  void _checkAllDone() {
+    if (_allDone()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('设置已记录，感谢配合！'),
+          content: Text('所有权限已设置完成！'),
           backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
         ),
       );
+    }
+    setState(() {});
+  }
+
+  Future<void> _onDone() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('background_guide_done', true);
+      await prefs.setString('device_brand', _brand);
+    } catch (e) {
+      debugPrint('[PermissionGuide] 保存设置失败: $e');
+    }
+
+    if (mounted) {
+      if (_allDone()) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('设置完成，感谢配合！'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
       Navigator.pop(context);
-    }
-  }
-
-  IconData _getBrandIcon(String brand) {
-    switch (brand) {
-      case 'Huawei':
-        return Icons.wifi_tethering;
-      case 'Honor':
-        return Icons.flare;
-      case 'Xiaomi':
-        return Icons.battery_charging_full;
-      case 'OPPO':
-        return Icons.power;
-      case 'vivo':
-        return Icons.phone_android;
-      case 'Samsung':
-        return Icons.star;
-      case 'Apple':
-        return Icons.apple;
-      default:
-        return Icons.smartphone;
-    }
-  }
-
-  Color _getBrandColor(String brand) {
-    switch (brand) {
-      case 'Huawei':
-        return const Color(0xFFCF0A2C);
-      case 'Honor':
-        return const Color(0xFF000000);
-      case 'Xiaomi':
-        return const Color(0xFFFF6900);
-      case 'OPPO':
-        return const Color(0xFF1A6B37);
-      case 'vivo':
-        return const Color(0xFF415FFF);
-      default:
-        return Colors.blue;
     }
   }
 }

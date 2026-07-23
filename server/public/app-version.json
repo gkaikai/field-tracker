@@ -1,8 +1,8 @@
 {
-  "latestVersion": "1.0.44",
-  "latestVersionCode": 41,
-  "releaseNotes": "- 完整替换Geolocator为高德SDK\n- 原生ForegroundService改用高德AMapLocationClient\n- 水印拍照取位置改用AmapLocationService\n- 原生GPS回调接入Flutter定位引擎\n- 修复时间戳兼容高德numeric epoch格式\n- 修复MethodChannel传递(MainActivity→ForegroundService)\n- 移除Google Play Services location依赖\n- 清理死代码location_service.dart",
-  "downloadUrl": "/downloads/field-tracker-v1.0.44.apk",
+  "latestVersion": "1.0.46",
+  "latestVersionCode": 43,
+  "releaseNotes": "- 首次安装自动弹出权限引导页（定位/电池优化/后台运行，一键跳转）\n- 轨迹回放地图底图不依赖隧道，隧道断后照常显示\n- 前台才刷新，锁屏/切后台停止定时刷新\n- 修复隧道旧地址导致卸载重装后登录失败\n- 版本管理+回滚体系建立\n- 更新自动刷新间隔3s→15s",
+  "downloadUrl": "/downloads/field-tracker-v1.0.46.apk",
   "forceUpdate": false,
   "minSupportedVersion": "1.0.1"
 }

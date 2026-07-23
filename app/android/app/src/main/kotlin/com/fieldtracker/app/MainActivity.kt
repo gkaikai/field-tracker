@@ -40,6 +40,32 @@ class MainActivity : FlutterActivity() {
                     LocationForegroundService.setGpsInterval(intervalMs)
                     result.success(true)
                 }
+                "openAppSettings" -> {
+                    try {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                        ).apply {
+                            data = android.net.Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INTENT_FAILED", e.message, null)
+                    }
+                }
+                "openBatteryOptimization" -> {
+                    try {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                        ).apply {
+                            data = android.net.Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INTENT_FAILED", e.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

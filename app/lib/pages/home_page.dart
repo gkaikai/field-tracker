@@ -21,7 +21,9 @@ import 'approval_page.dart';
 import 'stats_page.dart';
 import 'photo_gallery_page.dart';
 import 'visit_plan_page.dart';
+import 'permission_guide_page.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 首页 - 功能导航
 class HomePage extends StatefulWidget {
@@ -48,6 +50,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     });
     _requestBatteryOptimizationExemption();
+    // 首次安装弹出权限引导页
+    _showFirstLaunchGuide();
   }
 
   @override
@@ -97,6 +101,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('[HomePage] 请求电池优化忽略失败: $e');
+    }
+  }
+
+  /// 首次安装弹出权限引导页
+  Future<void> _showFirstLaunchGuide() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final done = prefs.getBool('background_guide_done') ?? false;
+      if (!done && mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PermissionGuidePage()),
+        );
+      }
+    } catch (e) {
+      debugPrint('[HomePage] 权限引导页加载失败: $e');
     }
   }
 
