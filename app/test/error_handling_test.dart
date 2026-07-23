@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:field_tracker/services/api_service.dart';
 import 'package:field_tracker/services/auth_service.dart';
-import 'package:field_tracker/services/location_service.dart';
 import 'package:field_tracker/config/app_config.dart';
 
 /// 错误处理测试 / Error Handling Tests
@@ -120,67 +119,6 @@ void main() {
         // DioException 包含连接拒绝等网络错误
         expect(e, isA<Exception>());
       }
-    });
-  });
-
-  group('LocationService - 异常处理 / Location Error Handling', () {
-    test('单例模式 - 多次获取返回同一实例', () {
-      final a = LocationService();
-      final b = LocationService();
-      expect(identical(a, b), isTrue);
-    });
-
-    test('初始状态 - currentPosition 应为 null', () {
-      final loc = LocationService();
-      expect(loc.currentPosition, isNull);
-      expect(loc.isRunning, isFalse);
-    });
-
-    test('初始状态 - 回调默认为 null', () {
-      final loc = LocationService();
-      expect(loc.onLocationChanged, isNull);
-      expect(loc.onError, isNull);
-    });
-
-    test('onError 回调 - 设置后应可被调用', () {
-      final loc = LocationService();
-      String? capturedError;
-      loc.onError = (error) {
-        capturedError = error;
-      };
-
-      // 手动触发 onError 回调（模拟权限拒绝场景）
-      loc.onError?.call('定位权限被拒绝');
-      expect(capturedError, equals('定位权限被拒绝'));
-
-      loc.onError?.call('定位流错误: 位置服务不可用');
-      expect(capturedError, equals('定位流错误: 位置服务不可用'));
-    });
-
-    test('onLocationChanged 回调 - 设置后应可被调用', () {
-      final loc = LocationService();
-      bool callbackFired = false;
-      loc.onLocationChanged = (lat, lng, accuracy, speed) {
-        callbackFired = true;
-      };
-
-      expect(loc.onLocationChanged, isNotNull);
-      // 回调不为 null，但无法直接构造 Position 实例（依赖 geolocator 平台通道）
-      // 所以仅验证回调可被赋值
-    });
-
-    test('stopTracking - 未启动状态下调用不应抛出异常', () {
-      final loc = LocationService();
-      expect(() => loc.stopTracking(), returnsNormally);
-      expect(loc.isRunning, isFalse);
-    });
-
-    test('double stopTracking - 多次停止不应抛出异常', () {
-      final loc = LocationService();
-      loc.stopTracking();
-      loc.stopTracking();
-      loc.stopTracking();
-      expect(loc.isRunning, isFalse);
     });
   });
 

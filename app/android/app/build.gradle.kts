@@ -57,9 +57,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    // 高德地图 SDK（插件用compileOnly，宿主必须提供implementation）
+    // 高德地图 & 定位 SDK
     implementation("com.amap.api:3dmap:8.1.0")
     implementation("com.amap.api:location:5.6.0")
-    // Google Play Services 原生定位（FusedLocationProviderClient）
-    implementation("com.google.android.gms:play-services-location:21.2.0")
 }

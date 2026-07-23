@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:dio/dio.dart';
-import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 import 'package:field_tracker/services/background_location_service.dart';
 import '../services/auth_service.dart';
 import '../config/app_config.dart';
+import '../utils/device_info.dart';
 import 'map_page.dart';
 import 'attendance_page.dart';
 import 'track_replay_page.dart';
@@ -21,6 +21,7 @@ import 'approval_page.dart';
 import 'stats_page.dart';
 import 'photo_gallery_page.dart';
 import 'visit_plan_page.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// 首页 - 功能导航
 class HomePage extends StatefulWidget {
@@ -30,14 +31,107 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final AuthService _auth = AuthService();
+  final AmapLocationService _locService = AmapLocationService();
   String _appVersion = '';
+  final DateTime _appStartTime = DateTime.now(); // 首次启动时间门控
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadVersion();
+    _locService.startTracking().then((started) {
+      if (!started) {
+        debugPrint('[HomePage] 定位服务启动失败');
+      }
+    });
+    _requestBatteryOptimizationExemption();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // 从后台恢复前台 → 检查定位服务是否还活着
+      _checkAndRestartLocation();
+    }
+  }
+
+  /// 从后台恢复时检查定位服务健康状态
+  Future<void> _checkAndRestartLocation() async {
+    debugPrint('[HomePage] 应用回到前台，检查定位服务状态');
+
+    // 首次启动短时间内的切入/出不弹引导（GPS冷启动需3-30秒）
+    final hasBeenRunning =
+        DateTime.now().difference(_appStartTime).inSeconds > 30;
+
+    final loc = AmapLocationService();
+    if (!loc.isRunning || loc.currentLat == null) {
+      debugPrint('[HomePage] 定位服务不在运行或未收到位置，正在重启...');
+      loc.stopTracking();
+      await loc.startTracking();
+      await startBackgroundLocationService();
+      debugPrint('[HomePage] 定位服务已重启');
+      // 运行超过30秒且后台被杀过，提示用户设置保活
+      if (hasBeenRunning) {
+        _showBatteryGuideDialog();
+      }
+    } else {
+      debugPrint('[HomePage] 定位服务正常运行，最后位置: ${loc.currentLat}, ${loc.currentLng}');
+    }
+  }
+
+  /// 请求忽略电池优化（华为/小米防御）
+  Future<void> _requestBatteryOptimizationExemption() async {
+    try {
+      if (await Permission.ignoreBatteryOptimizations.status.isDenied) {
+        await Permission.ignoreBatteryOptimizations.request();
+        debugPrint('[HomePage] 已请求电池优化忽略');
+      }
+    } catch (e) {
+      debugPrint('[HomePage] 请求电池优化忽略失败: $e');
+    }
+  }
+
+  /// 显示后台保活引导弹窗（根据手机品牌自动匹配引导步骤）
+  Future<void> _showBatteryGuideDialog() async {
+    if (!mounted) return;
+
+    final guide = await DeviceInfo.getGuideInfo();
+    final title = guide['title'] ?? '后台定位设置引导';
+    final steps = guide['steps'] ?? '请在系统设置中允许应用后台运行。';
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$title'),
+        content: SingleChildScrollView(child: Text(steps)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('已设置'),
+          ),
+          TextButton(
+            onPressed: () async {
+              // 再次请求忽略电池优化
+              if (await Permission.ignoreBatteryOptimizations.status.isDenied) {
+                await Permission.ignoreBatteryOptimizations.request();
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('再去系统设置'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadVersion() async {

@@ -11,7 +11,6 @@ import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 import 'package:field_tracker/services/background_location_service.dart';
-import 'package:field_tracker/services/location_service.dart' as old_loc;
 import '../services/attendance_service.dart';
 import '../services/api_service.dart';
 import '../services/error_codes.dart';
@@ -51,29 +50,28 @@ class _MapPageState extends State<MapPage> {
 
   @override
   void dispose() {
+    AmapLocationService().onLocationChanged = null;
     super.dispose();
   }
 
   Future<void> _initLocation() async {
     // 用高德定位服务获取位置
     final loc = AmapLocationService();
-    if (loc.isRunning) {
-      // 如果已经启动，直接取最新位置
-      if (loc.currentLat != null && loc.currentLng != null) {
-        if (mounted) {
-          setState(() {
-            _currentLat = loc.currentLat;
-            _currentLng = loc.currentLng;
-            _isLocating = true;
-            _statusText =
-                '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
-          });
-        }
+
+    // 先取已有位置
+    if (loc.currentLat != null && loc.currentLng != null) {
+      if (mounted) {
+        setState(() {
+          _currentLat = loc.currentLat;
+          _currentLng = loc.currentLng;
+          _isLocating = true;
+          _statusText =
+              '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
+        });
       }
-      return;
     }
 
-    // 监听定位结果
+    // 注册回调——不管是否已运行，确保后续定位更新能到达
     loc.onLocationChanged = (lat, lng, accuracy, speed) {
       if (mounted) {
         setState(() {
@@ -91,14 +89,17 @@ class _MapPageState extends State<MapPage> {
       }
     };
 
-    // 启动高德定位
-    final started = await loc.startTracking();
-    if (!started && mounted) {
-      setState(() => _statusText = '定位启动失败，请在设置中开启定位权限和GPS');
+    // 如果定位服务未运行，启动它
+    if (!loc.isRunning) {
+      final started = await loc.startTracking();
+      if (!started && mounted) {
+        setState(() => _statusText = '定位启动失败，请在设置中开启定位权限和GPS');
+        return;
+      }
     }
 
     // 启动原生前台定位服务（息屏保活）
-    if (started) {
+    if (loc.isRunning) {
       final bgStarted = await startBackgroundLocationService();
       debugPrint('[地图] 后台前台服务启动: ${bgStarted ? "成功" : "失败"}');
     }
@@ -335,6 +336,7 @@ class _MapPageState extends State<MapPage> {
         'customerId': customer['id'],
         'lat': lat,
         'lng': lng,
+        'content': '拜访客户: ${customer['name'] ?? ''}',
       });
       if (!mounted) return;
       Navigator.pop(context);

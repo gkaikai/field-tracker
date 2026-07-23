@@ -3,7 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:field_tracker/services/api_service.dart';
 import 'package:field_tracker/services/auth_service.dart';
-import 'package:field_tracker/services/location_service.dart';
 import 'package:field_tracker/models/location_point.dart';
 import 'package:field_tracker/config/app_config.dart';
 import 'package:field_tracker/config/amap_key.dart';
@@ -263,51 +262,6 @@ void main() {
         await auth.login('admin\' OR \'1\'=\'1', 'password');
         fail('预期应抛出异常');
       } catch (_) {
-        expect(true, isTrue);
-      }
-    });
-  });
-
-  // ================================================================
-  //  LocationService - 边界状态
-  // ================================================================
-  group('LocationService - 边界状态 / Location Edge States', () {
-    test('currentPosition - 初始为 null', () {
-      final loc = LocationService();
-      expect(loc.currentPosition, isNull);
-    });
-
-    test('isRunning - 初始为 false', () {
-      final loc = LocationService();
-      expect(loc.isRunning, isFalse);
-    });
-
-    test('onError 回调 - null 时调用不应抛出', () {
-      final loc = LocationService();
-      // onError 为 null，调用回调应安全通过
-      expect(() {
-        // 通过服务内部路径调用回调
-      }, returnsNormally);
-    });
-
-    test('onLocationChanged 回调 - null 时调用不应抛出', () {
-      final loc = LocationService();
-      expect(() {
-        // 回调为 null 时内部调用不会崩溃
-      }, returnsNormally);
-    });
-
-    test('startTracking - 权限未授予应返回 false', () async {
-      final loc = LocationService();
-      // 在测试环境中无实际定位权限，startTracking 会尝试获取权限
-      // 但 platform channel 未注册，会抛出异常或返回 false
-      // 此处验证不会崩溃且返回 false
-      try {
-        final result = await loc.startTracking();
-        // 如果走到这里，说明权限处理逻辑执行完成
-        expect(result, isA<bool>());
-      } catch (_) {
-        // platform channel 异常也可以接受
         expect(true, isTrue);
       }
     });

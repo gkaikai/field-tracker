@@ -21,7 +21,7 @@ class TrackReplayPage extends StatefulWidget {
   State<TrackReplayPage> createState() => _TrackReplayPageState();
 }
 
-class _TrackReplayPageState extends State<TrackReplayPage> {
+class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingObserver {
   final ApiService _api = ApiService();
 
   DateTime _selectedDate = DateTime.now();
@@ -29,7 +29,9 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
   bool _isLoading = false;
   String? _error;
   double _sliderValue = 0;
+  int? _lastFetchedTimestamp;
   bool _isLoadingTrack = false; // 请求去重锁
+  bool _isForeground = true;    // APP是否在前台
 
   AMapController? _mapController;
   Set<Polyline> _polylines = {};
@@ -38,22 +40,21 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
 
   // 轨迹统计
   double _totalDistanceKm = 0;
-  /// 轨迹点列表展开/收起
-  bool _showPointList = false;
-  final _pointListScrollController = ScrollController();
-  int _hoveredPointIndex = -1;
+  // 轨迹列表已移除（数据量大，后台存着即可）
   double _avgSpeedKmh = 0;
   Duration _totalDuration = Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadTrack();
     _loadFences();
-    // 每13秒自动刷新轨迹（12秒采集一次+1秒余量）
+    // 每15秒自动刷新轨迹（仅前台有效，省电省流量）
     _autoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 13),
+      const Duration(seconds: 15),
       (_) {
+        if (!mounted || !_isForeground) return;
         if (!_isPlaying) _loadTrack(isAutoRefresh: true);
       },
     );
@@ -75,40 +76,75 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
           '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       final auth = AuthService();
       final userId = auth.userId ?? 'me';
-      final resp = await _api
-          .get('/api/v1/location/track/$userId', query: {'date': dateStr});
-      if (!mounted) { _isLoadingTrack = false; return; }
-      final data = resp.data as Map<String, dynamic>;
-      final points =
-          (data['points'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ??
-              [];
 
-      if (!mounted) { _isLoadingTrack = false; return; }
+      // 自动刷新时只拉增量数据（since=最新时间戳）
+      // 全量首次加载时不传since，拉取当天全部数据
+      final queryParams = <String, dynamic>{'date': dateStr};
+      if (isAutoRefresh && _lastFetchedTimestamp != null) {
+        queryParams['since'] = _lastFetchedTimestamp.toString();
+      }
+
+      final resp = await _api.get(
+        '/api/v1/location/track/$userId',
+        query: queryParams,
+      );
+      if (!mounted) return;
+      final data = resp.data as Map<String, dynamic>;
+      final newPoints =
+          (data['points'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+      final latestTimestamp = data['latestTimestamp'] as int?;
+
+      if (!mounted) return;
 
       setState(() {
-        _points = points;
+        if (isAutoRefresh && _lastFetchedTimestamp != null) {
+          // 增量模式：追加新数据
+          if (newPoints.isNotEmpty) {
+            final oldLen = _points.length;
+            _points = [..._points, ...newPoints];
+            // 增量更新地图：仅从 oldLen-1 开始追加新段
+            try {
+              _updateMap(fitToTrack: false, incrementalFrom: oldLen);
+            } catch (mapErr, mapSt) {
+              debugPrint('=== _updateMap error ===\n$mapErr\n$mapSt');
+            }
+          }
+        } else {
+          // 全量模式：替换全部数据 + 重置进度条
+          _points = newPoints;
+          _sliderValue = 0;
+        }
         _isLoading = false;
-        _sliderValue = _sliderValue.clamp(0, points.length > 0 ? (points.length - 1).toDouble() : 0);
+        _sliderValue = _sliderValue.clamp(0, _points.isNotEmpty ? (_points.length - 1).toDouble() : 0);
       });
 
-      try {
-        _updateMap(fitToTrack: !isAutoRefresh);
-      } catch (mapErr, mapSt) {
-        print('=== _updateMap error ===\n$mapErr\n$mapSt');
+      // 更新最后时间戳
+      if (latestTimestamp != null) {
+        _lastFetchedTimestamp = latestTimestamp;
+      }
+
+      // 全量模式才需要在这里调 _updateMap（增量已在 setState 内处理）
+      if (!isAutoRefresh) {
+        try {
+          _updateMap(fitToTrack: true);
+        } catch (mapErr, mapSt) {
+          debugPrint('=== _updateMap error ===\n$mapErr\n$mapSt');
+        }
       }
     } catch (e, st) {
-      if (!mounted) { _isLoadingTrack = false; return; }
+      if (!mounted) return;
       final detail = e.toString();
       final errMsg = '加载轨迹失败${detail.isNotEmpty ? ': [${e.runtimeType}] $detail' : ''}';
-      print('=== _loadTrack error ===\n$e\n$st');
+      debugPrint('=== _loadTrack error ===\n$e\n$st');
       if (!isAutoRefresh) {
         setState(() {
           _error = errMsg;
           _isLoading = false;
         });
       }
+    } finally {
+      _isLoadingTrack = false;
     }
-    _isLoadingTrack = false;
   }
 
   /// 加载电子围栏并渲染为红色多边形
@@ -152,7 +188,9 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         }
       }
       if (mounted) setState(() => _fencePolygons = fences);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[TrackReplay] 加载围栏失败: $e');
+    }
   }
 
   /// 生成近似圆形的多边形点
@@ -218,15 +256,27 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     return const Color(0xFFF44336).withOpacity(0.7); // 红
   }
 
-  void _updateMap({bool fitToTrack = true}) {
+  void _updateMap({bool fitToTrack = true, int incrementalFrom = 0}) {
     if (_points.isEmpty) return;
 
-    final polylines = <Polyline>{};
     double totalDistKm = 0;
     int totalDurationMs = 0;
 
+    // 总距离/时间直接从已有值继承（增量模式）或从零开始（全量模式）
+    if (incrementalFrom > 0) {
+      totalDistKm = _totalDistanceKm;
+    }
+
+    final List<Polyline> newPolylines = [];
+
     if (_points.length > 1) {
-      for (int i = 0; i < _points.length - 1; i++) {
+      // 增量模式：从 incrementalFrom-1 开始只计算新增段
+      // 全量模式：从 0 开始
+      final startIdx = incrementalFrom > 0
+          ? (incrementalFrom - 1).clamp(0, _points.length - 2)
+          : 0;
+
+      for (int i = startIdx; i < _points.length - 1; i++) {
         final p1 = _points[i];
         final p2 = _points[i + 1];
 
@@ -235,19 +285,18 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         final lat2 = p2['lat'] as double;
         final lng2 = p2['lng'] as double;
 
-        // 时间间隔检查：超过5分钟不连线（防止数据空白导致的大折线）
         final t1 = p1['timestamp'] as int;
         final t2 = p2['timestamp'] as int;
         final gapSec = (t2 - t1).abs() ~/ 1000;
-        if (gapSec > 300) continue; // 跳过断点段，不画线
+        if (gapSec > 300) continue;
 
-        // 累计距离
-        totalDistKm += _haversineDistance(lat1, lng1, lat2, lng2) / 1000.0;
+        // 增量模式：跳过重叠段的距离（已在_totalDistanceKm中计过）
+        if (!(incrementalFrom > 0 && i == startIdx)) {
+          totalDistKm += _haversineDistance(lat1, lng1, lat2, lng2) / 1000.0;
+        }
 
-        // 速度颜色
         final speedKmh = _getSegmentSpeed(p1, p2);
-
-        polylines.add(Polyline(
+        newPolylines.add(Polyline(
           points: [LatLng(lat1, lng1), LatLng(lat2, lng2)],
           color: _speedColor(speedKmh),
           width: 6,
@@ -259,9 +308,9 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       final t2 = _points.last['timestamp'] as int;
       totalDurationMs = (t2 - t1).abs();
     } else {
-      // 单点：直接画一个点迹
+      // 单点
       final p = _points.first;
-      polylines.add(Polyline(
+      newPolylines.add(Polyline(
         points: [LatLng(p['lat'] as double, p['lng'] as double)],
         color: const Color(0xFF4CAF50).withOpacity(0.7),
         width: 6,
@@ -291,7 +340,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
         ));
       }
 
-      // 当前定位小蓝点（播放时跟随移动）
+      // 当前定位小蓝点
       markers.add(Marker(
         position: LatLng(current['lat'] as double, current['lng'] as double),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
@@ -303,7 +352,13 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     }
 
     setState(() {
-      _polylines = polylines;
+      if (incrementalFrom > 0) {
+        // 增量追加：保留旧折线 + 追加新段
+        _polylines = {..._polylines, ...newPolylines};
+      } else {
+        // 全量重建
+        _polylines = newPolylines.toSet();
+      }
       _markers = markers;
       _totalDistanceKm = totalDistKm;
       _totalDuration = Duration(milliseconds: totalDurationMs);
@@ -410,13 +465,17 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       firstDate: DateTime.now().subtract(const Duration(days: 90)),
       lastDate: DateTime.now(),
     );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
+    if (picked != null && mounted) {
+      setState(() {
+        _selectedDate = picked;
+        _lastFetchedTimestamp = null;
+      });
       _loadTrack();
     }
   }
 
   bool _isPlaying = false;
+  bool _playbackFinished = false; // 防止播放结束重置与快速重播的竞态
   Timer? _playTimer;
   double _playSpeed = 1.0; // 播放倍速: 1x, 2x, 4x, 8x
   static const List<double> _speedOptions = [1.0, 2.0, 4.0, 8.0];
@@ -432,7 +491,10 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
     }
     if (_points.length < 2) return;
 
-    setState(() => _isPlaying = true);
+    setState(() {
+      _isPlaying = true;
+      _playbackFinished = false;
+    });
     final intervalMs = (500 / _playSpeed).round();
     final interval = Duration(milliseconds: intervalMs.clamp(16, 5000));
 
@@ -450,8 +512,11 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
           // 重置播放起点，下次播放从头开始
         });
         // 播放结束后重置到起点
+        _playbackFinished = true;
         Future.delayed(Duration.zero, () {
-          if (mounted) setState(() => _sliderValue = 0);
+          if (mounted && _playbackFinished) {
+            setState(() => _sliderValue = 0);
+          }
         });
         return;
       }
@@ -608,9 +673,18 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _playTimer?.cancel();
     _autoRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isForeground = state == AppLifecycleState.resumed;
+    // 回到前台立即刷新，不等下次定时器 tick
+    if (!_isForeground || !mounted || _isPlaying) return;
+    _loadTrack(isAutoRefresh: true);
   }
 
   @override
@@ -642,7 +716,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
       ),
       body: Column(
         children: [
-          // 日期栏
+          // 顶部：日期栏
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: Colors.grey[100],
@@ -663,7 +737,6 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
               ],
             ),
           ),
-
           // 统计摘要卡片
           if (_points.length > 1)
             Container(
@@ -691,299 +764,185 @@ class _TrackReplayPageState extends State<TrackReplayPage> {
                 ],
               ),
             ),
-
           // 速度图例
           if (_points.length > 1) _buildSpeedLegend(),
-
-          // 地图区域
+          // 地图区域 — 占剩余空间，独立手势
           Expanded(
-            flex: 3,
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
+            child: Stack(
+              children: [
+                // 地图底图始终加载（不依赖轨迹数据）
+                AMapWidget(
+                    apiKey: const AMapApiKey(
+                      androidKey: AMapConfig.androidKey,
+                      iosKey: AMapConfig.iosKey,
+                    ),
+                    privacyStatement: const AMapPrivacyStatement(
+                      hasContains: true,
+                      hasShow: true,
+                      hasAgree: true,
+                    ),
+                    onMapCreated: (controller) {
+                      _mapController = controller;
+                      if (_points.isNotEmpty) _fitMapToTrack(
+                        _points.map((p) => LatLng(p['lat'] as double, p['lng'] as double)).toList(),
+                      );
+                    },
+                    initialCameraPosition: const CameraPosition(
+                      target: LatLng(22.543096, 114.057865),
+                      zoom: 15,
+                    ),
+                    polylines: _polylines,
+                    markers: _markers,
+                    polygons: _fencePolygons,
+                    compassEnabled: true,
+                    scaleEnabled: true,
+                    zoomGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                  ),
+                // 加载中遮罩
+                if (_isLoading)
+                  const Center(child: CircularProgressIndicator()),
+                // 无轨迹提示
+                if (!_isLoading && _error == null && _points.isEmpty)
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.route, size: 48, color: Colors.grey[300]),
+                        const SizedBox(height: 12),
+                        Text('当天无轨迹数据',
+                            style: TextStyle(color: Colors.grey[500], fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                // 错误提示（不影响地图底图展示）
+                if (!_isLoading && _error != null)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
                           children: [
-                            Icon(Icons.error_outline,
-                                size: 48, color: Colors.grey[400]),
-                            const SizedBox(height: 12),
-                            Text(_error!,
-                                style: TextStyle(color: Colors.grey[600])),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                                onPressed: _loadTrack, child: const Text('重试')),
+                            Icon(Icons.error_outline, color: Colors.orange[700], size: 24),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(_error!, style: TextStyle(color: Colors.grey[700], fontSize: 13)),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() => _error = null);
+                                _loadTrack();
+                              },
+                              child: const Text('重试'),
+                            ),
                           ],
                         ),
-                      )
-                    : _points.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.route,
-                                    size: 48, color: Colors.grey[300]),
-                                const SizedBox(height: 12),
-                                Text('当天无轨迹数据',
-                                    style: TextStyle(
-                                        color: Colors.grey[500], fontSize: 15)),
-                              ],
-                            ),
-                          )
-                        : AMapWidget(
-                            apiKey: AMapApiKey(
-                              androidKey: AMapConfig.androidKey,
-                              iosKey: AMapConfig.iosKey,
-                            ),
-                            privacyStatement: const AMapPrivacyStatement(
-                              hasContains: true,
-                              hasShow: true,
-                              hasAgree: true,
-                            ),
-                            initialCameraPosition: CameraPosition(
-                              target: LatLng(
-                                (currentPos?['lat'] as double?) ?? _points.first['lat'] as double,
-                                (currentPos?['lng'] as double?) ?? _points.first['lng'] as double,
-                              ),
-                              zoom: 15,
-                            ),
-                            onMapCreated: (controller) {
-                              _mapController = controller;
-                              _fitMapToTrack(_points
-                                  .map((p) => LatLng(
-                                      p['lat'] as double, p['lng'] as double))
-                                  .toList());
-                            },
-                            polylines: _polylines,
-                            markers: _markers,
-                            polygons: _fencePolygons,
-                            compassEnabled: true,
-                            scaleEnabled: true,
-                            zoomGesturesEnabled: true,
-                            scrollGesturesEnabled: true,
-                            myLocationStyleOptions:
-                                MyLocationStyleOptions(true),
-                          ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-
-          // 列表切换按钮 + 轨迹点列表
+          // 底部固定区域：当前位置 + 播放控制 + 点列表切换
           if (_points.isNotEmpty)
             Container(
               color: Colors.white,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  InkWell(
-                    onTap: () => setState(() {
-                      _showPointList = !_showPointList;
-                      if (_showPointList && _pointListScrollController.hasClients) {
-                        _pointListScrollController.animateTo(
-                          0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-                      }
-                    }),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  // 当前位置信息
+                  if (currentPos != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      color: Colors.blue.withOpacity(0.05),
                       child: Row(
                         children: [
-                          Icon(
-                            _showPointList ? Icons.unfold_less : Icons.unfold_more,
-                            size: 16, color: Colors.blue,
-                          ),
-                          const SizedBox(width: 6),
+                          Icon(Icons.location_on, size: 14, color: Colors.blue[700]),
+                          const SizedBox(width: 4),
                           Text(
-                            _showPointList ? '收起轨迹点列表' : '展开轨迹点列表 (${_points.length}个点)',
-                            style: const TextStyle(fontSize: 13, color: Colors.blue),
+                            '${currentPos['lat'].toStringAsFixed(4)}, ${currentPos['lng'].toStringAsFixed(4)}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                          ),
+                          const Spacer(),
+                          const Icon(Icons.access_time, size: 12, color: Colors.grey),
+                          const SizedBox(width: 2),
+                          Text(
+                            _formatTime(currentPos['timestamp'] as int),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  if (_showPointList)
-                    SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        controller: _pointListScrollController,
-                        itemCount: _points.length,
-                        itemBuilder: (_, i) {
-                          final p = _points[i];
-                          final lat = p['lat'] as double;
-                          final lng = p['lng'] as double;
-                          final ts = p['timestamp'] as int;
-                          final acc = p['accuracy'] as double? ?? 0;
-                          final spd = p['speed'] as double?;
-                          final dt = DateTime.fromMillisecondsSinceEpoch(ts);
-                          final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
-                          return InkWell(
-                            onTap: () {
-                              setState(() => _sliderValue = i.toDouble());
-                              _mapController?.moveCamera(
-                                CameraUpdate.newLatLng(LatLng(lat, lng)),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: i == _sliderValue.toInt()
-                                    ? Colors.blue.withOpacity(0.08)
-                                    : null,
-                                border: Border(
-                                  bottom: BorderSide(color: Colors.grey[200]!, width: 0.5),
+                  // 底部控制栏
+                  if (_points.length > 1)
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Text(_formatTime(_points.first['timestamp'] as int),
+                                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              Expanded(
+                                child: Slider(
+                                  value: _sliderValue,
+                                  min: 0,
+                                  max: (_points.length - 1).toDouble(),
+                                  divisions: _points.length - 1,
+                                  label: _formatTime(_points[_sliderValue.toInt()]['timestamp'] as int),
+                                  onChanged: (v) {
+                                    setState(() => _sliderValue = v);
+                                    _updateCurrentMarker();
+                                  },
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 36,
-                                    child: Text(
-                                      '#${i + 1}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: i == _sliderValue.toInt() ? Colors.blue : Colors.grey[500],
-                                        fontWeight: i == _sliderValue.toInt() ? FontWeight.bold : FontWeight.normal,
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 72,
-                                    child: Text(timeStr,
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-                                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 56,
-                                    child: Text(
-                                      '精度${acc.toStringAsFixed(0)}m',
-                                      style: TextStyle(fontSize: 10, color: acc < 15 ? Colors.green : Colors.grey[600]),
-                                    ),
-                                  ),
-                                  if (spd != null)
-                                    SizedBox(
-                                      width: 44,
-                                      child: Text(
-                                        '${(spd * 3.6).toStringAsFixed(1)}km/h',
-                                        style: const TextStyle(fontSize: 10, color: Colors.grey),
-                                      ),
-                                    ),
-                                ],
+                              Text(_formatTime(_points.last['timestamp'] as int),
+                                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              ..._speedOptions.map((speed) => Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 2),
+                                child: FilterChip(
+                                  label: Text('${speed.toInt()}x', style: const TextStyle(fontSize: 11)),
+                                  selected: _playSpeed == speed,
+                                  onSelected: _isPlaying ? null : (v) {
+                                    if (v) setState(() => _playSpeed = speed);
+                                  },
+                                  visualDensity: VisualDensity.compact,
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              )),
+                              const SizedBox(width: 12),
+                              IconButton(
+                                icon: Icon(
+                                    _isPlaying
+                                        ? Icons.pause_circle_filled
+                                        : Icons.play_circle_filled,
+                                    size: 36,
+                                    color: Colors.blue),
+                                onPressed: _togglePlayback,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
                               ),
-                            ),
-                          );
-                        },
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                ],
-              ),
-            ),
-
-          // 当前位置信息
-          if (currentPos != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              color: Colors.blue.withOpacity(0.05),
-              child: Row(
-                children: [
-                  Icon(Icons.location_on, size: 16, color: Colors.blue[700]),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${currentPos['lat'].toStringAsFixed(4)}, ${currentPos['lng'].toStringAsFixed(4)}',
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w500),
-                  ),
-                  const Spacer(),
-                  Icon(Icons.access_time, size: 14, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatTime(currentPos['timestamp'] as int),
-                    style: const TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-
-          // 底部控制栏
-          if (_points.length > 1)
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 4,
-                      offset: const Offset(0, -2))
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Text(_formatTime(_points.first['timestamp'] as int),
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey)),
-                      Expanded(
-                        child: Slider(
-                          value: _sliderValue,
-                          min: 0,
-                          max: (_points.length - 1).toDouble(),
-                          divisions: _points.length - 1,
-                          onChanged: (v) {
-                            setState(() => _sliderValue = v);
-                            _updateCurrentMarker();
-                            final p = _points[v.toInt()];
-                            _mapController?.moveCamera(
-                              CameraUpdate.newLatLng(LatLng(
-                                  p['lat'] as double, p['lng'] as double)),
-                            );
-                          },
-                          activeColor: Colors.blue,
-                        ),
-                      ),
-                      Text(_formatTime(_points.last['timestamp'] as int),
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey)),
-                    ],
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // 倍速选择
-                      ..._speedOptions.map((speed) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                          label: Text('${speed}x', style: TextStyle(
-                            fontSize: 12,
-                            color: _isPlaying && _playSpeed != speed ? Colors.grey : null,
-                          )),
-                          selected: _playSpeed == speed,
-                          selectedColor: Colors.blue.withOpacity(0.2),
-                          backgroundColor: _isPlaying && _playSpeed != speed
-                              ? Colors.grey.withOpacity(0.1)
-                              : null,
-                          onSelected: _isPlaying ? null : (v) {
-                            if (v) setState(() => _playSpeed = speed);
-                          },
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      )),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: Icon(
-                            _isPlaying
-                                ? Icons.pause_circle_filled
-                                : Icons.play_circle_filled,
-                            size: 40,
-                            color: Colors.blue),
-                        onPressed: _togglePlayback,
-                      ),
-                    ],
-                  ),
+                  // 点列表已移除（后台存储，前台不展示）
                 ],
               ),
             ),

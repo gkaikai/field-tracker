@@ -180,10 +180,11 @@ router.get('/check',
 router.get('/events', async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
 
-  let query = `SELECT fe.id, fe.fence_id, gf.name as fence_name, fe.event_type,
+  let query = `SELECT fe.id, fe.fence_id, fe.user_id, u.name as user_name, gf.name as fence_name, fe.event_type,
                       fe.lat, fe.lng, fe.created_at
                FROM fence_events fe
-               JOIN geo_fences gf ON fe.fence_id = gf.id`;
+               JOIN geo_fences gf ON fe.fence_id = gf.id
+               LEFT JOIN users u ON fe.user_id = u.user_id`;
   const params: any[] = [];
   if (user.role !== 'admin') {
     query += ` WHERE fe.user_id = $1`;
@@ -197,6 +198,8 @@ router.get('/events', async (req: Request, res: Response) => {
     events: result.rows.map(r => ({
       id: r.id,
       fenceId: r.fence_id,
+      userId: r.user_id,
+      userName: r.user_name,
       fenceName: r.fence_name,
       eventType: r.event_type,
       lat: parseFloat(r.lat),

@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,6 +12,7 @@ import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
+import 'package:field_tracker/services/amap_location_service.dart';
 
 class WatermarkCameraPage extends StatefulWidget {
   final void Function(String photoUrl)? onPhotoTaken;
@@ -32,7 +32,8 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
   String? _lastPhotoPath;
   String? _lastPhotoUploadUrl;
 
-  Position? _position;
+  double? _currentLat;
+  double? _currentLng;
   String _address = '';
   String _currentTime = '';
   final AuthService _auth = AuthService();
@@ -46,18 +47,35 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
   }
 
   Future<void> _getLocation() async {
-    try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+    final loc = AmapLocationService();
+    // 如果定位服务未启动，尝试启动
+    if (!loc.isRunning) {
+      await loc.startTracking();
+      // 等待一小段时间让定位获取首次数据
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    if (loc.currentLat != null && loc.currentLng != null) {
       if (mounted) {
         setState(() {
-          _position = pos;
-          _address =
-              '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+          _currentLat = loc.currentLat;
+          _currentLng = loc.currentLng;
+          _address = '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
         });
       }
-    } catch (_) {}
+      return;
+    }
+    // 还没有定位数据，监听一次回调
+    loc.onLocationChanged = (lat, lng, accuracy, speed) {
+      if (mounted) {
+        setState(() {
+          _currentLat = lat;
+          _currentLng = lng;
+          _address = '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+        });
+      }
+      loc.onLocationChanged = null; // 取到一次就取消
+    };
   }
 
   Future<void> _initCamera() async {
@@ -109,8 +127,8 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
 
       final userName = _auth.userName ?? '用户';
       final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-      final latStr = _position?.latitude.toStringAsFixed(4) ?? '---';
-      final lngStr = _position?.longitude.toStringAsFixed(4) ?? '---';
+      final latStr = _currentLat?.toStringAsFixed(4) ?? '---';
+      final lngStr = _currentLng?.toStringAsFixed(4) ?? '---';
       final addrStr = _address;
 
       final fontSize = (w / 30).round().clamp(16, 48);
@@ -171,8 +189,8 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
         'photo': await MultipartFile.fromFile(file.path,
             filename:
                 'wm_${DateTime.now().millisecondsSinceEpoch}.png'),
-        'lat': _position?.latitude ?? 0,
-        'lng': _position?.longitude ?? 0,
+        'lat': _currentLat ?? 0,
+        'lng': _currentLng ?? 0,
         'address': _address,
       });
 

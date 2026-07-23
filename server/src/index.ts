@@ -79,6 +79,7 @@ import customerRoutes from './routes/customer';
 import approvalRoutes from './routes/approval';
 import orgRoutes from './routes/org';
 import geocodeRoutes from './routes/geocode';
+import tunnelRoutes from './routes/tunnel';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
@@ -91,6 +92,7 @@ app.use('/api/v1/customers', customerRoutes);
 app.use('/api/v1/approvals', approvalRoutes);
 app.use('/api/v1/org', orgRoutes);
 app.use('/api/v1/geocode', geocodeRoutes);
+app.use('/api/v1/tunnel', tunnelRoutes);
 
 // 提供静态文件服务（管理后台）
 app.use(express.static('public'));
@@ -98,8 +100,8 @@ app.use('/uploads', express.static('uploads'));
 
 // APK下载路由（attachment方式下载，防止乱码）
 app.get('/download-apk', (req, res) => {
-  const filePath = path.join(__dirname, '../public/ft-v1.0.40.apk');
-  res.download(filePath, 'field-tracker-v1.0.40.apk');
+  const filePath = path.join(__dirname, '../public/ft-v1.0.44.apk');
+  res.download(filePath, 'field-tracker-v1.0.44.apk');
 });
 
 // 管理后台入口
@@ -109,7 +111,7 @@ app.get('/admin', (req, res) => {
 
 // APK下载（支持 Range 请求，兼容代理隧道分块下载）
 app.get('/apk', (req, res) => {
-  const apkPath = '/Users/openclaw-gkf/development/field_tracker/app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk';
+  const apkPath = '/Users/openclaw-gkf/development/field_tracker/server/public/ft-v1.0.44.apk';
   const fs = require('fs');
   const stat = fs.statSync(apkPath);
   const fileSize = stat.size;

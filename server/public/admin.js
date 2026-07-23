@@ -70,23 +70,62 @@ function showTab(tab) {
   if (tab === 'rules') loadRules();
   if (tab === 'reports') loadReports();
   if (tab === 'org') loadOrg();
-  if (tab === 'fences') { loadFences(); setTimeout(initFenceMap, 300); }
+  if (tab === 'fences') { 
+    loadFences().then(() => {
+      initFenceMap();
+      // 添加搜索框
+      addFenceSearch();
+    });
+  }
   if (tab === 'customers') loadCustomers();
   if (tab === 'photos') loadPhotos();
   if (tab === 'users') loadUsers();
 }
 
 // ========== 高德地图工具 ==========
-function makeMap(containerId, center=[22.5431, 114.0579], zoom=13) {
-  const m = new AMap.Map(containerId, {
-    zoom, center, resizeEnable: true, scrollWheel: true,
-    mapStyle: 'amap://styles/1b73d7641e14fbb4d7f28d5bea018d6a'
-  });
-  AMap.plugin(['AMap.ToolBar', 'AMap.Scale'], function() {
+function makeMap(containerId, center=[113.90, 34.61], zoom=13) {
+  const m = new AMap.Map(containerId, { zoom, center, resizeEnable: true, scrollWheel: true });
+  AMap.plugin(['AMap.ToolBar', 'AMap.Scale', 'AMap.PlaceSearch', 'AMap.AutoComplete'], function() {
     m.addControl(new AMap.ToolBar());
     m.addControl(new AMap.Scale());
   });
   return m;
+}
+
+// 围栏地图搜索框
+let fencePlaceSearch = null;
+function addFenceSearch() {
+  const container = document.getElementById('fenceMapContainer');
+  if (!container || container.dataset.searchAdded) return;
+  container.dataset.searchAdded = '1';
+  // 在容器上方添加搜索行
+  const parent = container.parentElement;
+  const searchRow = document.createElement('div');
+  searchRow.style.cssText = 'display:flex;gap:8px;margin-bottom:8px';
+  searchRow.innerHTML = `
+    <input type="text" id="fenceSearchInput" placeholder="搜索地点/地址" style="flex:1;padding:8px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px" />
+    <button id="fenceSearchBtn" style="padding:8px 16px">🔍 搜索</button>
+  `;
+  parent.insertBefore(searchRow, container);
+  // 地点搜索
+  AMap.plugin(['AMap.PlaceSearch'], function() {
+    fencePlaceSearch = new AMap.PlaceSearch({ type: 'poi', pageSize: 10, pageIndex: 1 });
+  });
+  document.getElementById('fenceSearchBtn').onclick = function() {
+    const kw = document.getElementById('fenceSearchInput').value.trim();
+    if (!kw) return;
+    fencePlaceSearch.search(kw, function(status, result) {
+      if (status === 'complete' && result.poiList && result.poiList.pois.length > 0) {
+        const poi = result.poiList.pois[0];
+        fenceMap.setCenter([poi.location.lng, poi.location.lat]);
+        fenceMap.setZoom(16);
+        new AMap.Marker({ position: [poi.location.lng, poi.location.lat], map: fenceMap, title: poi.name });
+      }
+    });
+  };
+  document.getElementById('fenceSearchInput').onkeydown = function(e) {
+    if (e.key === 'Enter') document.getElementById('fenceSearchBtn').click();
+  };
 }
 
 // ====================================================================
@@ -150,7 +189,7 @@ async function loadFences() {
               <tr><th>用户</th><th>围栏</th><th>事件</th><th>时间</th></tr>
               ${eventList.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#999">暂无</td></tr>' :
                 eventList.slice(0,100).map(e => `<tr>
-                  <td>${e.userId?.slice(0,8)}</td><td>${e.fenceName}</td>
+                  <td>${e.userName || e.userId?.slice(0,8)}</td><td>${e.fenceName}</td>
                   <td><span class="tag ${e.eventType==='enter'?'tag-green':'tag-red'}">${e.eventType==='enter'?'⏺进入':'⏹离开'}</span></td>
                   <td>${new Date(e.createdAt).toLocaleString()}</td>
                 </tr>`).join('')}
@@ -164,8 +203,8 @@ async function loadFences() {
 function initFenceMap() {
   if (!document.getElementById('fenceMapContainer')) return;
   if (fenceMap) fenceMap.destroy();
-  fenceMap = makeMap('fenceMapContainer', [22.5431, 114.0579], 14);
-  AMap.event.addListener(fenceMap, 'click', function(e) {
+  fenceMap = makeMap('fenceMapContainer', [113.90, 34.61], 14);
+  fenceMap.on('click', function(e) {
     const ll = e.lnglat;
     fenceMode === 'circle' ? placeCircleCenter(ll.lat, ll.lng) : addPolygonPoint(ll.lat, ll.lng);
   });
@@ -268,25 +307,35 @@ async function deleteFence(id) { if (!confirm('确定删除？')) return; try { 
 window.editFence = async function(id) {
   try {
     const f = await api('GET', `/api/v1/fences/${id}`);
-    showTab('fences');
-    setTimeout(() => {
-      const nameEl = document.getElementById('fenceNameCreate');
-      if (!nameEl) { alert('围栏页面未加载完成'); return; }
-      nameEl.value = f.name || '';
-      setFenceMode(f.shapeType || 'circle');
-      setTimeout(() => {
-        if (f.shapeType === 'circle' && f.centerLat) {
-          placeCircleCenter(f.centerLat, f.centerLng);
-          const rs = document.getElementById('radiusSlider');
-          const rv = document.getElementById('radiusVal');
-          if (rs) rs.value = f.radiusMeters||300;
-          if (rv) rv.textContent = f.radiusMeters||300;
-        } else if (f.coordinates) {
-          f.coordinates.forEach(p => addPolygonPoint(p.lat, p.lng));
+    // 等待围栏页面完全渲染
+    await new Promise(resolve => {
+      const origShowTab = window._showTabFences || showTab;
+      showTab('fences');
+      // 等待地图初始化完成
+      const check = setInterval(() => {
+        const nameEl = document.getElementById('fenceNameCreate');
+        if (nameEl && fenceMap) {
+          clearInterval(check);
+          resolve();
         }
-        const saveEl = document.querySelector('#fenceResult');
-        if (saveEl) saveEl.innerHTML = '<button onclick="saveFenceEdit('+id+')">💾 更新围栏</button>';
-      }, 500);
+      }, 200);
+      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+    });
+    // 填充围栏数据
+    document.getElementById('fenceNameCreate').value = f.name || '';
+    setFenceMode(f.shapeType || 'circle');
+    setTimeout(() => {
+      if (f.shapeType === 'circle' && f.centerLat) {
+        placeCircleCenter(f.centerLat, f.centerLng);
+        const rs = document.getElementById('radiusSlider');
+        const rv = document.getElementById('radiusVal');
+        if (rs) rs.value = f.radiusMeters||300;
+        if (rv) rv.textContent = f.radiusMeters||300;
+      } else if (f.coordinates) {
+        f.coordinates.forEach(p => addPolygonPoint(p.lat, p.lng));
+      }
+      const saveEl = document.querySelector('#fenceResult');
+      if (saveEl) saveEl.innerHTML = '<button onclick="saveFenceEdit('+id+')">💾 更新围栏</button>';
     }, 500);
   } catch(e) { alert('加载失败: '+e.message); }
 };
@@ -306,7 +355,7 @@ async function saveFenceEdit(id) {
   catch(e) { document.getElementById('fenceResult').innerHTML = `❌ ${e.message}`; }
 }
 
-// ==================== 实时监控 - Leaflet版 ====================
+// ==================== 实时监控 - 高德版 ====================
 function connectMonitorWS() {
   if (monitorWS) { monitorWS.close(); monitorWS = null; }
   if (!TOKEN) return;
@@ -325,7 +374,6 @@ function connectMonitorWS() {
           if (!map) return;
           const uid = msg.userId;
           let found = false;
-          // 查找已有标记
           monitorMks.forEach(mk => {
             if (mk._uid === uid) {
               mk.setPosition([msg.lng, msg.lat]);
@@ -368,7 +416,7 @@ async function loadMonitor() {
     <div id="monitorTable"></div>`;
   setTimeout(() => {
     if (!document.getElementById('monitorMap')) return;
-    const m = makeMap('monitorMap', [22.5431, 114.0579], 12);
+    const m = makeMap('monitorMap', [113.90, 34.61], 12);
     window._monitorMap = m;
     refreshMonitor();
     connectMonitorWS();
@@ -452,7 +500,6 @@ window.addCustomer = async function() {
       remark: document.getElementById('custRemark').value,
     });
     document.getElementById('custResult').innerHTML = '✅ 添加成功';
-    // 清空表单
     document.getElementById('custName').value = '';
     document.getElementById('custPhone').value = '';
     loadCustomers();
@@ -524,24 +571,14 @@ window.addUser = async function() {
   if (!/^1\d{10}$/.test(phone)) { resultEl.innerHTML = '❌ 手机号必须以1开头'; return; }
   const validPrefixes = /^1(3\d|4[5-9]|5[0-35-9]|6[2567]|7[0-8]|8\d|9[0-35-9])\d{8}$/;
   if (!validPrefixes.test(phone)) { resultEl.innerHTML = '❌ 手机号号段无效（如13x/15x/18x等）'; return; }
-  const btn = document.querySelector('[onclick="addUser()"]');
-  btn.disabled = true; btn.textContent = '⏳...';
   try {
     await api('POST', '/api/v1/auth/register', {
       phone, password: document.getElementById('userPwd').value || 'test123456',
       name: document.getElementById('userName').value,
       role: document.getElementById('userRole').value,
     });
-    // 先更新列表，再设提示
-    await loadUsers();
-    resultEl.innerHTML = '✅ 添加成功';
-    document.getElementById('userName').value = '';
-    document.getElementById('userPhone').value = '';
-  } catch(e) {
-    resultEl.innerHTML = `❌ ${e.message}`;
-  } finally {
-    btn.disabled = false; btn.textContent = '➕ 添加';
-  }
+    document.getElementById('userResult').innerHTML = '✅ 添加成功';
+  } catch(e) { document.getElementById('userResult').innerHTML = `❌ ${e.message}`; }
 };
 window.deleteUser = async function(phone) {
   if (!confirm('确定删除？')) return;
@@ -556,10 +593,10 @@ window.editRule = async function(id) {
   if (!r) return;
   const name = prompt('规则名称:', r.name);
   if (!name) return;
-  const start = prompt('上班时间:', r.checkin_start||'09:00');
-  const end = prompt('下班时间:', r.checkin_end||'18:00');
+  const start = prompt('上班时间:', r.startTime);
+  const end = prompt('下班时间:', r.endTime);
   try {
-    await api('PUT', `/api/v1/attendance/rules/${id}`, { name, checkin_start: start, checkin_end: end, radius_meters: r.radius_meters, wifi_ssid: r.wifi_ssid });
+    await api('PUT', `/api/v1/attendance/rules/${id}`, { name, startTime: start, endTime: end, radius: r.radius, wifiName: r.wifiName });
     loadRules();
   } catch(e) { alert('编辑失败: '+e.message); }
 };
@@ -633,7 +670,7 @@ async function loadUserOptions() {
 }
 function haversine(lat1,lng1,lat2,lng2) { const R=6371; const dLat=(lat2-lat1)*Math.PI/180; const dLng=(lng2-lng1)*Math.PI/180; const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2; return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); }
 
-// ==================== 轨迹地图回放（Leaflet版） ====================
+// ==================== 轨迹地图回放（高德版） ====================
 async function searchTrack() {
   const inputVal = document.getElementById('trackUserId').value;
   const uid = inputVal || window._userId || 'none';
@@ -641,9 +678,12 @@ async function searchTrack() {
   const el = document.getElementById('trackResult');
   if (trackAnim) { clearInterval(trackAnim); trackAnim = null; trackPlaying = false; }
   trackPoints = [];
-  el.innerHTML = '<p>查询中...</p>';
+  el.innerHTML = `<p>查询中... (uid=${uid}, date=${date})</p>`;
   try {
-    const data = await api('GET', `/api/v1/location/track/${uid}?date=${date}`);
+    const url = `/api/v1/location/track/${uid}?date=${date}`;
+    const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+    if (!resp.ok) { const text = await resp.text(); throw new Error(`HTTP ${resp.status}: ${text.slice(0,200)}`); }
+    const data = await resp.json();
     trackPoints = data.points || [];
     if (trackPoints.length === 0) { el.innerHTML = '<div class="card" style="padding:20px;text-align:center;color:#999">该日期无轨迹数据</div>'; return; }
     const totalKm = trackPoints.length > 1 ? trackPoints.reduce((s,p,i)=>i===0?0:s+haversine(trackPoints[i-1].lat,trackPoints[i-1].lng,p.lat,p.lng),0) : 0;
@@ -658,11 +698,9 @@ async function searchTrack() {
       </div>
       <div id="trackReplayControls" style="display:flex;align-items:center;gap:12px;margin-bottom:8px;background:white;padding:10px 16px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
         <button id="playBtn" onclick="toggleTrackPlay()" style="min-width:80px">▶ 播放</button>
-        <span style="font-size:13px;color:#666;white-space:nowrap" id="trackProgressLabel">0/${trackPoints.length}</span>
-        <input type="range" id="trackSlider" min="0" max="${trackPoints.length-1}" value="0"
-          oninput="trackSliderChange(this.value)" style="flex:1;cursor:pointer" />
         <span>速度:</span>
         ${TRACK_SPEEDS.map(s => `<button class="speed-btn${s===1?' active':''}" onclick="setTrackSpeed(${s})" style="min-width:40px;padding:4px 8px">${s}x</button>`).join('')}
+        <span id="trackProgress" style="color:#666;font-size:13px;margin-left:auto">0 / ${trackPoints.length}</span>
         <span id="trackTimeLabel" style="color:#999;font-size:12px"></span>
       </div>
       <div id="trackMapContainer" style="height:400px;border-radius:10px;overflow:hidden;border:1px solid #ddd"></div>
@@ -672,19 +710,13 @@ async function searchTrack() {
       </div>`;
 
     if (trackMap) trackMap.destroy();
-    trackMarker = null; trackPolyline = null;
     trackMap = makeMap('trackMapContainer');
-    const path = trackPoints.map(p => [p.lng, p.lat]);
-    trackPolyline = new AMap.Polyline({ path, strokeColor: '#1677ff', strokeWeight: 3, strokeOpacity: 0.7, map: trackMap });
-    trackMap.setFitView([trackPolyline], false, [30, 30, 30, 30]);
+    const latlngs = trackPoints.map(p => [p.lng, p.lat]);
+    trackPolyline = new AMap.Polyline({ path: latlngs, strokeColor: '#1677ff', strokeWeight: 3, strokeOpacity: 0.7, map: trackMap });
+    trackMap.setFitView([trackPolyline]);
     trackIdx = 0; trackPlaying = false;
-    const first = trackPoints[0], last = trackPoints[trackPoints.length-1];
-    new AMap.Marker({ position: [first.lng, first.lat], map: trackMap,
-      content: `<div style="background:#52c41a;color:white;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid white">起</div>`,
-      label: {content: '起点', direction: 'top'} });
-    if (trackPoints.length > 1) new AMap.Marker({ position: [last.lng, last.lat], map: trackMap,
-      content: `<div style="background:#ff4d4f;color:white;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid white">终</div>`,
-      label: {content: '终点', direction: 'top'} });
+    new AMap.Marker({ position: latlngs[0], content: '<div style="background:#52c41a;width:12px;height:12px;border-radius:50%;border:2px solid white"></div>', map: trackMap });
+    if (latlngs.length > 1) new AMap.Marker({ position: latlngs[latlngs.length-1], content: '<div style="background:#ff4d4f;width:12px;height:12px;border-radius:50%;border:2px solid white"></div>', map: trackMap });
     const tableHtml = `<table class="data-table"><tr><th>#</th><th>时间</th><th>经度</th><th>纬度</th><th>速度</th></tr>${
       trackPoints.map((p,i)=>`<tr><td>${i+1}</td><td>${new Date(p.timestamp||p.time).toLocaleString()}</td><td>${(p.lng||0).toFixed(4)}</td><td>${(p.lat||0).toFixed(4)}</td><td>${(p.speed||0).toFixed(1)}</td></tr>`).join('')}</table>`;
     document.getElementById('trackTableWrap').innerHTML = tableHtml;
@@ -703,38 +735,14 @@ function trackAnimMove() {
   if (!trackPlaying) return;
   if (trackIdx >= trackPoints.length) { trackPlaying=false; if(trackAnim){clearInterval(trackAnim);trackAnim=null;} document.getElementById('playBtn').textContent='▶ 播放'; return; }
   const p = trackPoints[trackIdx];
+  if (trackMarker) trackMap.remove(trackMarker);
   const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
-  if (!trackMarker) {
-    trackMarker = new AMap.Marker({
-      position: [p.lng, p.lat], map: trackMap,
-      content: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`,
-      offset: new AMap.Pixel(-6, -6)
-    });
-  } else {
-    trackMarker.setPosition([p.lng, p.lat]);
-    trackMarker.setContent(`<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`);
-  }
+  trackMarker = new AMap.Marker({
+    position: [p.lng, p.lat], map: trackMap,
+    content: `<div style="background:${color};width:10px;height:10px;border-radius:50%;border:2px solid white"></div>`
+  });
   trackIdx++;
-  document.getElementById('trackProgressLabel').textContent = `${trackIdx} / ${trackPoints.length}`;
-  document.getElementById('trackSlider').value = trackIdx;
-  document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();
-}
-function trackSliderChange(val) {
-  trackIdx = parseInt(val);
-  const p = trackPoints[trackIdx];
-  if (!p) return;
-  const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
-  if (!trackMarker) {
-    trackMarker = new AMap.Marker({
-      position: [p.lng, p.lat], map: trackMap,
-      content: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`,
-      offset: new AMap.Pixel(-6, -6)
-    });
-  } else {
-    trackMarker.setPosition([p.lng, p.lat]);
-    trackMarker.setContent(`<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`);
-  }
-  document.getElementById('trackProgressLabel').textContent = `${trackIdx} / ${trackPoints.length}`;
+  document.getElementById('trackProgress').textContent = `${trackIdx} / ${trackPoints.length}`;
   document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();
 }
 function setTrackSpeed(speed) {
@@ -755,19 +763,13 @@ async function loadRules() {
     el.innerHTML = `<h2>打卡规则</h2><div class="card" style="padding:20px;margin:12px 0"><h4>新增</h4><div class="form-row"><label>名称</label><input type="text" id="ruleName" value="默认" /></div><div class="form-row"><label>上班</label><input type="time" id="ruleStart" value="09:00" /></div><div class="form-row"><label>下班</label><input type="time" id="ruleEnd" value="18:00" /></div><div class="form-row"><label>范围(m)</label><input type="number" id="ruleRadius" value="300" /></div><div class="form-row"><label>WiFi</label><input type="text" id="ruleWifi" placeholder="可选" /></div><button onclick="saveRule()">💾 保存</button><span id="ruleResult" style="margin-left:12px"></span></div>
       <table class="data-table"><tr><th>ID</th><th>名称</th><th>上班</th><th>下班</th><th>范围</th><th>操作</th></tr>${
         rules.length===0?'<tr><td colspan="6" style="text-align:center;color:#999">暂无</td></tr>':
-        rules.map(r=>`<tr><td>${r.id?.slice(0,8)}</td><td>${r.name}</td><td>${r.checkin_start||'--'}</td><td>${r.checkin_end||'--'}</td><td>${r.radius_meters||r.radius||300}m</td>
-          <td><button onclick="editRule('${r.id}')" style="padding:4px 8px;font-size:12px;margin-right:4px">✏️</button>
-          <button onclick="deleteRule('${r.id}')" class="danger" style="padding:4px 8px;font-size:12px">🗑️</button></td></tr>`).join('')}</table>`;
+        rules.map(r=>`<tr><td>${r.id}</td><td>${r.name}</td><td>${r.startTime}</td><td>${r.endTime}</td><td>${r.radius}m</td>
+          <td><button onclick="editRule(${r.id})" style="padding:4px 8px;font-size:12px;margin-right:4px">✏️</button>
+          <button onclick="deleteRule(${r.id})" class="danger" style="padding:4px 8px;font-size:12px">🗑️</button></td></tr>`).join('')}</table>`;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
 }
 async function saveRule() {
-  try { await api('POST','/api/v1/attendance/rules',{
-    name:document.getElementById('ruleName').value,
-    checkin_start:document.getElementById('ruleStart').value,
-    checkin_end:document.getElementById('ruleEnd').value,
-    radius_meters:parseInt(document.getElementById('ruleRadius').value),
-    wifi_ssid:document.getElementById('ruleWifi').value
-  });
+  try { await api('POST','/api/v1/attendance/rules',{name:document.getElementById('ruleName').value,startTime:document.getElementById('ruleStart').value,endTime:document.getElementById('ruleEnd').value,radius:parseInt(document.getElementById('ruleRadius').value),wifiName:document.getElementById('ruleWifi').value});
   document.getElementById('ruleResult').innerHTML='✅ 成功'; loadRules(); } catch(e) { document.getElementById('ruleResult').innerHTML=`❌ ${e.message}`; }
 }
 

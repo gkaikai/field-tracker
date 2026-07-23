@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:sensors_plus/sensors_plus.dart';
 import '../config/app_config.dart';
+import '../utils/geo_convert.dart' show haversineMeters;
 
 /// 活动状态枚举
 enum MotionState {
@@ -285,16 +286,8 @@ class MotionDetector {
   // ============================================================
 
   double _haversineMeters(double lat1, double lng1, double lat2, double lng2) {
-    const R = 6371000.0;
-    final dLat = _toRad(lat2 - lat1);
-    final dLng = _toRad(lng2 - lng1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRad(lat1)) * math.cos(_toRad(lat2)) *
-        math.sin(dLng / 2) * math.sin(dLng / 2);
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return haversineMeters(lat1, lng1, lat2, lng2);
   }
-
-  double _toRad(double deg) => deg * math.pi / 180;
 
   /// 获取状态名
   String get stateName {

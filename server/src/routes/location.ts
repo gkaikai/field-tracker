@@ -168,10 +168,11 @@ router.get('/batch',
 router.get('/track/:userId',
   validate([
     query('date').optional().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('日期格式无效(YYYY-MM-DD)'),
+    query('since').optional().isNumeric().withMessage('since必须是数值时间戳(ms)'),
   ]),
   async (req: Request, res: Response) => {
     const user = (req as any).user as JwtPayload;
-    const targetUserId = req.params.userId;
+    const targetUserId = req.params.userId === 'me' ? user.userId : req.params.userId;
 
     if (user.role === 'employee' && targetUserId !== user.userId) {
       return res.status(403).json({ code: '10009', message: '无权限访问' });
@@ -180,40 +181,44 @@ router.get('/track/:userId',
     const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
     const startMs = new Date(`${date}T00:00:00+08:00`).getTime();
     const endMs = new Date(`${date}T23:59:59.999+08:00`).getTime();
+    const sinceMs = req.query.since ? parseInt(req.query.since as string) : startMs;
+
+    // 如果 since 在 startMs 之前，回退到 startMs
+    const queryStartMs = Math.max(sinceMs, startMs);
 
     let all: TrackPoint[] = [];
 
-    // 1. 优先从数据库读取
+    // 1. 优先从数据库读取（增量：只读 since 之后的数据，用 > 避免重复最后一个点）
     try {
       const result = await pgPool.query(
         `SELECT lng, lat, accuracy, speed,
                 EXTRACT(EPOCH FROM recorded_at)::bigint * 1000 as timestamp
          FROM location_records
-         WHERE user_id = $1 AND recorded_at >= to_timestamp($2::double precision / 1000)
+         WHERE user_id = $1 AND recorded_at > to_timestamp($2::double precision / 1000)
            AND recorded_at <= to_timestamp($3::double precision / 1000)
          ORDER BY recorded_at ASC`,
-        [targetUserId, startMs, endMs]
+        [targetUserId, queryStartMs, endMs]
       );
       all = result.rows.map(r => ({
-        lng: parseFloat(r.lng),
-        lat: parseFloat(r.lat),
+        lng: parseFloat(r.lng) || 0,
+        lat: parseFloat(r.lat) || 0,
         accuracy: parseFloat(r.accuracy) || 0,
         speed: parseFloat(r.speed) || 0,
         timestamp: parseInt(r.timestamp),
       }));
     } catch (_dbErr) {
       // 数据库不可用时，从内存读取
-      all = getTrackPoints(targetUserId, startMs, endMs);
+      all = getTrackPoints(targetUserId, queryStartMs, endMs);
     }
 
-    // 2. 合并打卡数据（作为补充）
+    // 2. 合并打卡数据（作为补充，也按 since 过滤）
     try {
       const { getMemAttendanceRecords } = require('./attendance');
       const memRecords = getMemAttendanceRecords(targetUserId);
       const checkInPoints = memRecords
         .filter((r: any) => {
           const t = new Date(r.check_time).getTime();
-          return t >= startMs && t <= endMs;
+          return t >= queryStartMs && t <= endMs;
         })
         .map((r: any) => ({
           lng: r.lng,
@@ -228,37 +233,69 @@ router.get('/track/:userId',
     // 按时间排序
     all.sort((a, b) => a.timestamp - b.timestamp);
 
-    // 3. 中值滤波：移除孤立漂移点
-    // 如果一个点距离前后点都>2km，但前后点直接连线<3km，则判定为漂移
-    if (all.length > 3) {
-      const filtered: TrackPoint[] = [all[0]];
+    // 3. 中值滤波：移除孤立漂移点和连续漂移段
+    // 策略：标记所有疑似漂移点，再识别连续漂移段整段移除
+    if (sinceMs === startMs && all.length > 3) {
       const MAX_DRIFT_KM = 1.5;
       const MAX_SKIP_KM = 2.5;
 
+      // 第一遍：标记每个点是否疑似漂移
+      const driftFlags = new Array(all.length).fill(false);
       for (let i = 1; i < all.length - 1; i++) {
         const prev = all[i - 1];
         const curr = all[i];
         const next = all[i + 1];
-
         const d1 = haversineKm(prev.lat, prev.lng, curr.lat, curr.lng);
         const d2 = haversineKm(curr.lat, curr.lng, next.lat, next.lng);
         const dSkip = haversineKm(prev.lat, prev.lng, next.lat, next.lng);
-
         // 孤立漂移点：距前后都远，但前后很近
         if (d1 > MAX_DRIFT_KM && d2 > MAX_DRIFT_KM && dSkip < MAX_SKIP_KM) {
-          continue;  // 跳过漂移点
+          driftFlags[i] = true;
         }
-        filtered.push(curr);
+      }
+
+      // 第二遍：识别连续漂移段（2+个连续漂移点）
+      // 如果从最近的好点绕过整段连续漂移点到下一个好点的直线距离
+      // 远小于正常轨迹距离，则整段移除
+      const filtered: TrackPoint[] = [all[0]];
+      let lastGoodIdx = 0;
+      for (let i = 1; i < all.length - 1; i++) {
+        if (!driftFlags[i]) {
+          // 好点，加入
+          filtered.push(all[i]);
+          lastGoodIdx = i;
+        } else if (!driftFlags[i + 1]) {
+          // 当前是漂移点但下一个是好点 → 单点漂移，跳过
+          // 检查是否是连续漂移段末尾
+          // 从 lastGoodIdx 到 i+1 的直线距离
+          const segDist = haversineKm(
+            all[lastGoodIdx].lat, all[lastGoodIdx].lng,
+            all[i + 1].lat, all[i + 1].lng
+          );
+          if (segDist < MAX_SKIP_KM) {
+            // 整段跳过（孤立小区间）
+            lastGoodIdx = i;
+          } else {
+            // 漂移段太长，可能是实际移动，保留最后一个点
+            filtered.push(all[i]);
+            lastGoodIdx = i;
+          }
+        }
+        // 否则：连续漂移中段，继续跳过（不push）
       }
       filtered.push(all[all.length - 1]);
       all = filtered;
     }
+
+    // 4. 计算最新时间戳
+    const latestTimestamp = all.length > 0 ? all[all.length - 1].timestamp : queryStartMs;
 
     res.json({
       userId: targetUserId,
       date,
       points: all,
       source: all.length > 0 ? 'database' : 'memory',
+      latestTimestamp,
     });
   },
 );

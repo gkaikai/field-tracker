@@ -481,7 +481,7 @@ void main() {
   group('WorkManager 回调 / WorkManager Callback', () {
     test('callbackDispatcher 函数签名正确 (callbackDispatcher has correct signature)',
         () async {
-      // callbackDispatcher 在 location_service.dart 中定义
+      // 已迁移到高德定位，不再使用Geolocator的callbackDispatcher
       // 它是一个顶层函数，接受 Workmanager 的 executeTask
       // 此处仅验证 import 成功以及函数存在
       // 注意：@pragma('vm:entry-point') 标记的函数可被 WorkManager 调用
