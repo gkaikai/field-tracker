@@ -1,0 +1,24 @@
+{
+  "version": "1.1.0",
+  "versionDate": "2026-07-24",
+  "changelog": [
+    {
+      "version": "1.1.0",
+      "date": "2026-07-24",
+      "changes": [
+        "修复：切模式地图空白（setFenceMode 不再摧毁重建地图）",
+        "修复：画圆不显示圆周（AMap.Circle → 72边形Polygon）",
+        "修复：保存围栏后地图消失（setTimeout 碰运气 → async/await 精确时序）",
+        "修复：保存后自动显示刚创建的围栏",
+        "修复：📍按钮点击无反应（内联onclick → 事件委托）",
+        "修复：查看围栏不跳转视野（加 setCenter + setZoom）",
+        "修复：编辑围栏整页重载（检测是否已在围栏页，避免重复加载）",
+        "修复：删除围栏地图消失（async/await + 不摧毁地图）",
+        "优化：浏览器刷新回到当前标签页（hash routing）",
+        "优化：登录页不再闪现（CSS 默认隐藏 + JS 按需显示）",
+        "优化：所有 setTimeout 碰运气等待 → async/await 精确时序",
+        "新增：admin-version.json 版本管理 + 回滚体系"
+      ]
+    }
+  ]
+}

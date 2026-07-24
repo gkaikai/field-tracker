@@ -1,49 +1,13 @@
-# Flutter
-**/build/
-**/ios/Pods/
-**/.dart_tool/
-**/.packages
-**/pubspec.lock
-.dart_tool/
-.packages
-.flutter-plugins
-.flutter-plugins-dependencies
+# 备份目录（不提交）
+server/public.bak.*
+server/dist.bak.*
+*.bak.*
 
-# macOS
-.DS_Store
-*.swp
-*.swo
-
-# IDE
-.idea/
-.vscode/
-*.iml
-
-# Android
-*.apk
-*.aab
-local.properties
-*.keystore
-
-# Node
-node_modules/
-server/node_modules/
-
-# Environment
-.env
-.env.local
-.env.development
-.env.production
-
-# Database
-*.db
-*.sqlite
-pgdata/
-
-# Logs
+# 运行时文件
+tunnel_url.txt
+tunnel_url.txt.current
+current_tunnel_url.txt
 *.log
-logs/
-**/logs/
 
-# Build artifacts
-**/dist/
+# 系统文件
+.DS_Store
