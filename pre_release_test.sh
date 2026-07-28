@@ -3,12 +3,23 @@
 # 发布前自测脚本 — 每次构建APK发版前必须运行，全部通过才可发送
 # 用法: bash pre_release_test.sh
 # ==========================================================
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$SCRIPT_DIR/app"
 SERVER_DIR="$SCRIPT_DIR/server"
-TUNNEL_URL="https://ca30ef85c4698cc6-123-123-97-213.serveousercontent.com"
+TUNNEL_URL="${TUNNEL_URL:-https://ca30ef85c4698cc6-123-123-97-213.serveousercontent.com}"
+
+# 测试账号（可被环境变量覆盖）
+TEST_PHONE="${TEST_PHONE:-13800138000}"
+TEST_PASSWORD="${TEST_PASSWORD:-test123456}"
+
+# Flutter 工具链路径（可被环境变量覆盖）
+JAVA_HOME="${JAVA_HOME:-/Users/openclaw-gkf/.hermes/profiles/egg-xiaoming/home/java/zulu17.56.15-ca-jdk17.0.14-macosx_x64}"
+ANDROID_HOME="${ANDROID_HOME:-/Users/openclaw-gkf/android-sdk}"
+FLUTTER_ROOT="${FLUTTER_ROOT:-/Users/openclaw-gkf/development/flutter}"
+AAPT2="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+
 PASS=0
 FAIL=0
 
@@ -24,17 +35,16 @@ echo ""
 # ---- 1. 代码静态分析 ----
 info "1/5 Flutter Analyze..."
 cd "$APP_DIR"
-export JAVA_HOME="/Users/openclaw-gkf/.hermes/profiles/egg-xiaoming/home/java/zulu17.56.15-ca-jdk17.0.14-macosx_x64"
-export ANDROID_HOME="/Users/openclaw-gkf/android-sdk"
-export FLUTTER_ROOT="/Users/openclaw-gkf/development/flutter"
 
-ERROR_COUNT=$("$FLUTTER_ROOT/bin/flutter" analyze lib/ 2>&1 | grep "error " | wc -l | tr -d ' ')
-if [ "$ERROR_COUNT" -eq 0 ]; then
-  green "主代码无错误 ($ERROR_COUNT errors)"
+ANALYZE_OUTPUT=$("$FLUTTER_ROOT/bin/flutter" analyze lib/ 2>&1) && ANALYZE_OK=true || ANALYZE_OK=false
+
+if $ANALYZE_OK; then
+  green "Flutter Analyze 通过"
   PASS=$((PASS+1))
 else
-  red "主代码有 $ERROR_COUNT 个错误！"
-  "$FLUTTER_ROOT/bin/flutter" analyze lib/ 2>&1 | grep "error "
+  ERROR_COUNT=$(echo "$ANALYZE_OUTPUT" | grep -c "error" 2>/dev/null || echo 0)
+  red "Flutter Analyze 发现 $ERROR_COUNT 个错误！"
+  echo "$ANALYZE_OUTPUT" | head -20
   FAIL=$((FAIL+1))
 fi
 
@@ -43,8 +53,8 @@ info "2/5 APK构建..."
 rm -rf build 2>/dev/null
 BUILD_OUTPUT=$("$FLUTTER_ROOT/bin/flutter" build apk --release --split-per-abi 2>&1)
 if echo "$BUILD_OUTPUT" | grep -q "Built build"; then
-  VERSION_NAME=$(/Users/openclaw-gkf/android-sdk/build-tools/34.0.0/aapt2 dump badging build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null | grep "versionName=" | sed "s/.*versionName='\([^']*\)'.*/\1/")
-  VERSION_CODE=$(/Users/openclaw-gkf/android-sdk/build-tools/34.0.0/aapt2 dump badging build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null | grep "versionCode=" | sed "s/.*versionCode='\([^']*\)'.*/\1/")
+  VERSION_NAME=$("$AAPT2" dump badging build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null | grep "versionName=" | sed "s/.*versionName='\([^']*\)'.*/\1/")
+  VERSION_CODE=$("$AAPT2" dump badging build/app/outputs/flutter-apk/app-arm64-v8a-release.apk 2>/dev/null | grep "versionCode=" | sed "s/.*versionCode='\([^']*\)'.*/\1/")
   APK_SIZE=$(ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk | awk '{print $5}')
   green "APK构建成功 v$VERSION_NAME (code $VERSION_CODE, ${APK_SIZE}B)"
   PASS=$((PASS+1))
@@ -56,23 +66,28 @@ fi
 
 # ---- 3. 隧道连通性 ----
 info "3/5 隧道连通性..."
-HEALTH=$(curl -s --max-time 5 "$TUNNEL_URL/health" 2>&1)
-if echo "$HEALTH" | grep -q "ok"; then
+HEALTH=$(curl -sS --max-time 5 "$TUNNEL_URL/health" 2>&1) || HEALTH_EXIT=$?
+if [ -n "$HEALTH" ] && echo "$HEALTH" | grep -q "ok"; then
   green "隧道正常"
   PASS=$((PASS+1))
 else
   red "隧道不可达！"
+  echo "错误详情:"
+  echo "$HEALTH" | head -5
   FAIL=$((FAIL+1))
 fi
 
 # ---- 4. 服务端API ----
 info "4/5 服务端API测试..."
-TOKEN=$(curl -s -X POST "$TUNNEL_URL/api/v1/auth/login" \
+LOGIN_RESP=$(curl -sS -X POST "$TUNNEL_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"phone":"13800138000","password":"test123456"}' | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('token',''))" 2>/dev/null)
+  -d "{\"phone\":\"$TEST_PHONE\",\"password\":\"$TEST_PASSWORD\"}" 2>&1) || LOGIN_EXIT=$?
+
+TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('token',''))" 2>/dev/null)
 
 if [ -z "$TOKEN" ]; then
   red "登录API失败——token为空"
+  echo "响应: $(echo "$LOGIN_RESP" | head -3)"
   FAIL=$((FAIL+1))
 else
   # 只读API验证（不写入任何测试数据，避免污染用户轨迹）
@@ -90,12 +105,14 @@ fi
 
 # ---- 5. 通知渠道验证 ----
 info "5/5 通知渠道代码验证..."
-NOTIFY_LINES=$(grep -c "BackgroundService\|LocationForegroundService\|CreateNotification" "$APP_DIR/android/app/src/main/java/com/fieldtracker/app/LocationForegroundService.java" 2>/dev/null || echo 0)
+NOTIFY_FILE="$APP_DIR/android/app/src/main/java/com/fieldtracker/app/LocationForegroundService.java"
+NOTIFY_LINES=$(grep -c "BackgroundService\|LocationForegroundService\|CreateNotification" "$NOTIFY_FILE" 2>/dev/null || echo 0)
 if [ "$NOTIFY_LINES" -ge 1 ]; then
   green "原生前台服务代码已配置"
   PASS=$((PASS+1))
 else
   red "原生前台服务代码缺失！"
+  [ -f "$NOTIFY_FILE" ] && echo "文件存在但未匹配关键字" || echo "文件不存在: $NOTIFY_FILE"
   FAIL=$((FAIL+1))
 fi
 

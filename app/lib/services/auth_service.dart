@@ -78,7 +78,16 @@ class AuthService {
         'password': password,
       });
 
-      final data = resp.data as Map<String, dynamic>;
+      final dynamic rawData = resp.data;
+      final Map<String, dynamic>? data;
+      if (rawData is Map<String, dynamic>) {
+        data = rawData;
+      } else {
+        throw ApiException(
+          code: 10010,
+          message: '服务器返回格式异常',
+        );
+      }
 
       // 虽然拦截器已处理业务 code，但双重校验确保安全
       final int? bizCode = data['code'] as int?;
@@ -94,9 +103,9 @@ class AuthService {
       // 兼容两种返回格式：{user:{id:...}} 或 {userId:...}
       _userId = (data['user']?['id'] ?? data['userId'] ?? '').toString();
       _userCode = (data['user']?['userCode'] ?? data['userCode'] ?? '').toString();
-      _userName = (data['user']?['name'] ?? data['name'] as String?) ?? phone;
-      _department = (data['user']?['department'] ?? data['departmentId'] as String?);
-      _role = (data['user']?['role'] ?? data['role'] as String?)?.toString();
+      _userName = (data['user']?['name'] ?? data['name']?.toString()) ?? phone;
+      _department = (data['user']?['department'] ?? data['departmentId']?.toString());
+      _role = (data['user']?['role'] ?? data['role']?.toString())?.toString();
 
       if (_token != null) {
         _api.setToken(_token);

@@ -13,10 +13,17 @@ class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
 
-  late final Dio _dio;
+  late Dio _dio;
   String? _token;
+  bool _initialized = false;
 
   ApiService._internal() {
+    // Dio 在第一次使用时惰性初始化，避免 AppConfig.init() 前崩溃
+  }
+
+  /// 确保 Dio 已初始化（首次使用或切换 baseUrl 后调用）
+  void _ensureDio() {
+    if (_initialized) return;
     _dio = Dio(BaseOptions(
       baseUrl: AppConfig.baseUrl,
       connectTimeout: const Duration(seconds: 10),
@@ -37,6 +44,7 @@ class ApiService {
           final codeVal = data['code'];
           final int? bizCode = (codeVal is int) ? codeVal : int.tryParse('$codeVal');
           if (bizCode != null && bizCode != 200 && ErrorCode.isBusinessError(bizCode)) {
+            // 业务错误 — 不重置熔断计数，弹出错误提示
             final msg = ErrorCode.message(bizCode);
 
             Fluttertoast.showToast(
@@ -56,9 +64,30 @@ class ApiService {
             return;
           }
         }
+
+        // 真正成功响应 → 重置熔断计数
+        if (!response.requestOptions.path.contains('/health')) {
+          AppConfig.onRequestSuccess();
+        }
         handler.next(response);
       },
       onError: (error, handler) {
+        // 网络错误或服务器错误 → 触发熔断计数
+        if (error.type == DioExceptionType.connectionTimeout ||
+            error.type == DioExceptionType.receiveTimeout ||
+            error.type == DioExceptionType.connectionError) {
+          // 异步触发切换（不阻塞当前请求处理）
+          AppConfig.onRequestFailed();
+        }
+
+        // 服务器 5xx 错误也触发熔断切换
+        if (error.type == DioExceptionType.badResponse) {
+          final statusCode = error.response?.statusCode;
+          if (statusCode != null && statusCode >= 500 && statusCode < 600) {
+            AppConfig.onRequestFailed();
+          }
+        }
+
         // 尝试从错误响应中提取业务错误码
         final resp = error.response;
         Map<String, dynamic>? bizData;
@@ -100,29 +129,44 @@ class ApiService {
         handler.next(error);
       },
     ));
+    _initialized = true;
   }
 
-  void setToken(String? token) => _token = token;
+  void setToken(String? token) {
+    _token = token;
+    _ensureDio();
+  }
 
   /// 更新服务器地址（用户手动设置后调用）
   void updateBaseUrl(String newUrl) {
+    _ensureDio();
     _dio.options.baseUrl = newUrl;
   }
 
-  Future<Response> post(String path, {Map<String, dynamic>? data}) =>
-      _dio.post(path, data: data);
+  Future<Response> post(String path, {Map<String, dynamic>? data}) {
+    _ensureDio();
+    return _dio.post(path, data: data);
+  }
 
-  Future<Response> uploadFile(String path, FormData formData) =>
-      _dio.post(path, data: formData);
+  Future<Response> uploadFile(String path, FormData formData) {
+    _ensureDio();
+    return _dio.post(path, data: formData);
+  }
 
-  Future<Response> get(String path, {Map<String, dynamic>? query}) =>
-      _dio.get(path, queryParameters: query);
+  Future<Response> get(String path, {Map<String, dynamic>? query}) {
+    _ensureDio();
+    return _dio.get(path, queryParameters: query);
+  }
 
-  Future<Response> put(String path, {Map<String, dynamic>? data}) =>
-      _dio.put(path, data: data);
+  Future<Response> put(String path, {Map<String, dynamic>? data}) {
+    _ensureDio();
+    return _dio.put(path, data: data);
+  }
 
-  Future<Response> delete(String path) =>
-      _dio.delete(path);
+  Future<Response> delete(String path) {
+    _ensureDio();
+    return _dio.delete(path);
+  }
 
   static String _httpErrorMessage(DioException e) {
     final resp = e.response;

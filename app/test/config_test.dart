@@ -34,7 +34,6 @@ void main() {
       expect(AppConfig.apiReportLocation, startsWith('/'));
       expect(AppConfig.apiCurrentLocation, startsWith('/'));
       expect(AppConfig.apiBatchLocation, startsWith('/'));
-      expect(AppConfig.apiTrack, startsWith('/'));
     });
   });
 }

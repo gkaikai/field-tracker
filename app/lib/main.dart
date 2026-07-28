@@ -7,6 +7,7 @@ import 'pages/forgot_password_page.dart';
 import 'pages/permission_guide_page.dart';
 import 'package:workmanager/workmanager.dart';
 import 'config/app_config.dart';
+import 'config/amap_key.dart';
 import 'package:amap_flutter_location/amap_flutter_location.dart';
 
 Future<void> main() async {
@@ -17,7 +18,8 @@ Future<void> main() async {
   AMapFlutterLocation.updatePrivacyShow(true, true);
   AMapFlutterLocation.updatePrivacyAgree(true);
   // Flutter插件3.x必须在Dart代码中设置ApiKey（AndroidManifest无效）
-  AMapFlutterLocation.setApiKey('0e00439a3a2b04282e78083ea7a9b19d', '');
+  // 密钥通过 AMapConfig 从 --dart-define 编译注入
+  AMapFlutterLocation.setApiKey(AMapConfig.androidKey, AMapConfig.iosKey);
 
   // 全局异常捕获
   FlutterError.onError = (FlutterErrorDetails details) {

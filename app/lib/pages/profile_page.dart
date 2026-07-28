@@ -82,8 +82,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 onPressed: () async {
                   final svc = OfflineService();
                   final count = await svc.offlineCount();
+                  if (!context.mounted) return;
                   if (count == 0) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无离线数据需要同步'))); return; }
                   final synced = await svc.syncAll();
+                  if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('同步完成: $synced 条')));
                 },
               ),

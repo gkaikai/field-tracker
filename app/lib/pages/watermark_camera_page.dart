@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 
-import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
@@ -127,8 +126,6 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
 
       final userName = _auth.userName ?? '用户';
       final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-      final latStr = _currentLat?.toStringAsFixed(4) ?? '---';
-      final lngStr = _currentLng?.toStringAsFixed(4) ?? '---';
       final addrStr = _address;
 
       final fontSize = (w / 30).round().clamp(16, 48);

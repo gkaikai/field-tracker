@@ -5,6 +5,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL,
+    user_code VARCHAR(50),
     phone VARCHAR(20) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     department_id UUID,
@@ -37,8 +38,12 @@ CREATE TABLE IF NOT EXISTS location_records (
     bearing FLOAT,
     battery FLOAT,
     recorded_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (id, recorded_at)
 ) PARTITION BY RANGE (recorded_at);
+
+-- 注意：如果已有数据库（表已创建但无 PRIMARY KEY），需要手动为每个分区添加主键：
+--   ALTER TABLE location_records_YYYYMM ADD PRIMARY KEY (id, recorded_at);
 
 -- 创建当前月份分区
 DO $$

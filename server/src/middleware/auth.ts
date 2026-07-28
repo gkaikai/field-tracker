@@ -4,8 +4,13 @@ import { AppError } from '../errors/AppError';
 import { ErrorCodes } from '../errors/errorCodes';
 
 /// JWT_SECRET 每次请求时从环境变量读取（避免模块加载时序问题）
+/// ⚠️ 生产环境必须设置 JWT_SECRET 环境变量，无默认值
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || 'field-tracker-secret';
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET 环境变量未设置 — 启动时已在 index.ts 中校验，不应到达此处');
+  }
+  return secret;
 }
 
 // JWT payload 接口

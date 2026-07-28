@@ -6,10 +6,12 @@ import express from 'express';
 import cors from 'cors';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { WebSocketServer } from 'ws';
 import dotenv from 'dotenv';
 import { testConnection, pgPool, redis } from './config/database';
-import { setupLocationWS } from './websocket/location_ws';
+import { setupLocationWS, stopAdminCacheRefresh, forceRefreshAdminCache } from './websocket/location_ws';
+import { setupHeartbeatWS, stopHeartbeatCheck } from './websocket/heartbeat_ws';
 import { errorHandler } from './middleware/errorHandler';
 import { logger, requestLogger } from './config/logger';
 import { initAlert } from './monitoring/alert';
@@ -31,6 +33,18 @@ const envFile = process.env.NODE_ENV === 'production'
 const envPath = path.resolve(__dirname, '../', envFile);
 dotenv.config({ path: envPath });
 logger.info(`加载环境配置: ${envFile} (NODE_ENV=${process.env.NODE_ENV || '未设置'})`);
+
+// ============================================================
+//  启动时安全检查 — 校验必填环境变量
+// ============================================================
+const requiredEnvVars = ['JWT_SECRET', 'DB_PASSWORD'];
+const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingEnvVars.length > 0) {
+  console.error(`\n❌ [安全] 以下环境变量未设置，拒绝启动：`);
+  missingEnvVars.forEach(v => console.error(`   - ${v}`));
+  console.error(`   请创建 ${envFile} 文件并设置上述变量后再启动。\n`);
+  process.exit(1);
+}
 
 // 初始化告警通道（从环境变量读取 Webhook URL）
 initAlert();
@@ -80,6 +94,7 @@ import approvalRoutes from './routes/approval';
 import orgRoutes from './routes/org';
 import geocodeRoutes from './routes/geocode';
 import tunnelRoutes from './routes/tunnel';
+import heartbeatRoutes from './routes/heartbeat';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
@@ -93,15 +108,37 @@ app.use('/api/v1/approvals', approvalRoutes);
 app.use('/api/v1/org', orgRoutes);
 app.use('/api/v1/geocode', geocodeRoutes);
 app.use('/api/v1/tunnel', tunnelRoutes);
+app.use('/api/v1/heartbeat', heartbeatRoutes);
+
+// 根路径重定向到管理后台
+app.get('/', (req, res) => res.redirect('/admin'));
 
 // 提供静态文件服务（管理后台）
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
 
+// ---- 辅助函数: 查找最新的APK文件 ----
+function findLatestApk(): string | null {
+  const publicDir = path.join(__dirname, '../public');
+  try {
+    const files = fs.readdirSync(publicDir)
+      .filter(f => f.endsWith('.apk'))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(publicDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    return files.length > 0 ? path.join(publicDir, files[0].name) : null;
+  } catch {
+    return null;
+  }
+}
+
 // APK下载路由（attachment方式下载，防止乱码）
 app.get('/download-apk', (req, res) => {
-  const filePath = path.join(__dirname, '../public/ft-v1.0.44.apk');
-  res.download(filePath, 'field-tracker-v1.0.44.apk');
+  const filePath = findLatestApk();
+  if (!filePath) {
+    return res.status(404).json({ code: 'APK_NOT_FOUND', message: '暂无APK文件' });
+  }
+  const fileName = path.basename(filePath);
+  res.download(filePath, fileName);
 });
 
 // 管理后台入口
@@ -111,7 +148,10 @@ app.get('/admin', (req, res) => {
 
 // APK下载（支持 Range 请求，兼容代理隧道分块下载）
 app.get('/apk', (req, res) => {
-  const apkPath = '/Users/openclaw-gkf/development/field_tracker/server/public/ft-v1.0.44.apk';
+  const apkPath = findLatestApk();
+  if (!apkPath) {
+    return res.status(404).json({ code: 'APK_NOT_FOUND', message: '暂无APK文件' });
+  }
   const fs = require('fs');
   const stat = fs.statSync(apkPath);
   const fileSize = stat.size;
@@ -175,10 +215,21 @@ const wss = new WebSocketServer({
 
 setupLocationWS(wss);
 
+// ---- WebSocket 心跳服务 ----
+const heartbeatWss = new WebSocketServer({
+  server,
+  path: '/ws/heartbeat',
+});
+
+setupHeartbeatWS(heartbeatWss);
+
 // ---- 启动 ----
 async function start() {
   // 检查数据库连接
   await testConnection();
+
+  // 数据库就绪后首次刷新 admin 缓存（避免启动时查询失败）
+  forceRefreshAdminCache();
 
   // 确保未来3个月的分区存在
   try {
@@ -189,8 +240,8 @@ async function start() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    logger.info(`Field Tracker Server 启动成功 | HTTP: ${PORT} | WS: /ws/location`);
-    console.log(`\n╔══════════════════════════════════════════════╗\n║          Field Tracker Server                ║\n║──────────────────────────────────────────────║\n║  HTTP  : http://localhost:${PORT}              ║\n║  WS    : ws://localhost:${PORT}/ws/location    ║\n║  Admin : http://localhost:${PORT}/admin        ║\n║  Health: http://localhost:${PORT}/health       ║\n║  Metrics: http://localhost:${PORT}/metrics     ║\n╚══════════════════════════════════════════════╝\n    `);
+    logger.info(`Field Tracker Server 启动成功 | HTTP: ${PORT} | WS: /ws/location, /ws/heartbeat`);
+    console.log(`\n╔══════════════════════════════════════════════╗\n║          Field Tracker Server                ║\n║──────────────────────────────────────────────║\n║  HTTP  : http://localhost:${PORT}              ║\n║  WS    : ws://localhost:${PORT}/ws/location    ║\n║  Heart : ws://localhost:${PORT}/ws/heartbeat   ║\n║  Admin : http://localhost:${PORT}/admin        ║\n║  Health: http://localhost:${PORT}/health       ║\n║  Metrics: http://localhost:${PORT}/metrics     ║\n╚══════════════════════════════════════════════╝\n    `);
 
     // 启动定期监控摘要输出（每30分钟）
     startMetricsSummary();
@@ -223,14 +274,22 @@ start().catch(console.error);
 async function gracefulShutdown(signal: string) {
   logger.info(`收到 ${signal}，正在优雅关闭...`);
 
-  // 1. 停止接受新连接
-  server.close(() => {
-    logger.info('HTTP 服务器已关闭');
-  });
-
-  // 2. 关闭 WebSocket 连接
+  // 1. 先关闭 WebSocket 连接（阻止新 WS 连接）
   wss.clients.forEach((ws) => {
     ws.close(1001, 'Server shutting down');
+  });
+  heartbeatWss.clients.forEach((ws) => {
+    ws.close(1001, 'Server shutting down');
+  });
+  stopHeartbeatCheck();
+  stopAdminCacheRefresh();
+
+  // 2. 停止接受新 HTTP 连接（WS 关闭后 server.close 不再被 WS 阻塞）
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      logger.info('HTTP 服务器已关闭');
+      resolve();
+    });
   });
 
   // 3. 等待待处理请求完成（最多5秒）
@@ -257,6 +316,6 @@ async function gracefulShutdown(signal: string) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
-  logger.error('未捕获异常', { error: err.message, stack: err.stack });
-  gracefulShutdown('uncaughtException');
+  logger.error('未捕获异常，进程即将退出', { error: err.message, stack: err.stack });
+  process.exit(1);
 });

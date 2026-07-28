@@ -77,8 +77,10 @@ export function getHttpStatus(errorCode: ErrorCode): number {
       if (errorCode === 'AUTH_FORBIDDEN') return 403;
       if (errorCode === 'AUTH_TOKEN_MISSING' || errorCode === 'AUTH_TOKEN_INVALID' || errorCode === 'AUTH_LOGIN_FAILED') return 401;
       return 400;
+    case 'CAPTCHA':
+    case 'SMS':
+    case 'PHONE':
     case 'LOC':
-      return 400;
     case 'ATTEND':
       return 400;
     default:

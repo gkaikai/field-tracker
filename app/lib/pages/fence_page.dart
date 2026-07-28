@@ -2,15 +2,14 @@
 import 'dart:async';
 import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
-import 'package:dio/dio.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
+import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
+import 'fence_edit_page.dart';
 
 class FencePage extends StatefulWidget {
   const FencePage({super.key});
@@ -83,12 +82,22 @@ class _FencePageState extends State<FencePage>
   /// 初始化地图位置到当前用户所在位置
   Future<void> _initLocation() async {
     final loc = AmapLocationService();
-    final lat = loc.currentLat;
-    final lng = loc.currentLng;
-    if (lat != null && lng != null) {
+    double? lat = loc.currentLat;
+    double? lng = loc.currentLng;
+
+    // 定位可能还没就绪，等2秒重试
+    if (lat == null || lng == null) {
+      await Future.delayed(const Duration(seconds: 2));
+      lat = loc.currentLat;
+      lng = loc.currentLng;
+    }
+
+    if (lat != null && lng != null && mounted) {
+      final double clat = lat;
+      final double clng = lng;
       setState(() {
         _initialCameraPos = CameraPosition(
-          target: LatLng(lat, lng),
+          target: LatLng(clat, clng),
           zoom: 15,
         );
       });
@@ -113,23 +122,11 @@ class _FencePageState extends State<FencePage>
     setState(() => _fencesLoading = true);
     try {
       final resp = await _api.get('/api/v1/fences');
-      final List<dynamic> raw = resp.data is List
-          ? resp.data
-          : (resp.data['data'] ?? resp.data['fences'] ?? []);
+      final List<dynamic> raw = resp.data is List ? resp.data : (resp.data['fences'] ?? []);
       final allFences = raw.cast<Map<String, dynamic>>();
 
       setState(() {
-        if (_isAdmin) {
-          _fences = allFences;
-        } else {
-          _fences = allFences
-              .where((f) =>
-                  (f['department']?.toString() ?? '') ==
-                      (_auth.department ?? '') ||
-                  (f['departmentId']?.toString() ?? '') ==
-                      (_auth.department ?? ''))
-              .toList();
-        }
+        _fences = allFences;
         _fencesLoading = false;
       });
     } catch (e) {
@@ -142,13 +139,11 @@ class _FencePageState extends State<FencePage>
     }
   }
 
-  Future<void> _loadEvents() async {
-    setState(() => _eventsLoading = true);
+  Future<void> _loadEvents({bool silent = false}) async {
+    if (!silent) setState(() => _eventsLoading = true);
     try {
       final resp = await _api.get('/api/v1/fences/events');
-      final List<dynamic> raw = resp.data is List
-          ? resp.data
-          : (resp.data['data'] ?? resp.data['events'] ?? []);
+      final raw = (resp.data is Map ? (resp.data['events'] as List? ?? []) : resp.data as List? ?? []);
       setState(() {
         _events = raw.cast<Map<String, dynamic>>();
         _eventsLoading = false;
@@ -166,7 +161,7 @@ class _FencePageState extends State<FencePage>
   void _startEventsAutoRefresh() {
     _eventsTimer?.cancel();
     _eventsTimer =
-        Timer.periodic(const Duration(seconds: 10), (_) => _loadEvents());
+        Timer.periodic(const Duration(seconds: 10), (_) => _loadEvents(silent: true));
   }
 
   Future<void> _deleteFence(dynamic id) async {
@@ -203,10 +198,9 @@ class _FencePageState extends State<FencePage>
     }
   }
 
-  /// 地址搜索 - 调用高德地图地理编码API
-  /// 输入变化时：防抖搜索建议
+  /// 地址搜索 - 调用高德POI搜索API
+  /// 输入变化时：防抖搜索建议（改用 place/text 支持模糊搜索）
   void _onSearchChanged(String value) {
-    setState(() {});
     _searchDebounce?.cancel();
     if (value.trim().isEmpty) {
       setState(() {
@@ -220,26 +214,34 @@ class _FencePageState extends State<FencePage>
     });
   }
 
-  /// 调用高德输入提示API获取模糊建议列表
+  /// 调用高德POI文本搜索API获取模糊建议列表（替代 inputtips，支持模糊搜索）
   Future<void> _fetchSuggestions(String keyword) async {
     try {
       final dio = Dio();
       final resp = await dio.get(
-        'https://restapi.amap.com/v3/assistant/inputtips',
+        'https://restapi.amap.com/v3/place/text',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
           'keywords': keyword,
           'output': 'JSON',
+          'offset': '15',
+          'page': '1',
+          'extensions': 'base',
         },
       );
-      final tips = resp.data['tips'] as List?;
-      if (tips == null || tips.isEmpty) {
+      // 高德API返回 status=0 表示失败
+      if (resp.data['status'] != '1') {
+        if (mounted) setState(() => _showSuggestions = false);
+        return;
+      }
+      final pois = resp.data['pois'] as List?;
+      if (pois == null || pois.isEmpty) {
         if (mounted) setState(() => _showSuggestions = false);
         return;
       }
       if (mounted) {
         setState(() {
-          _searchSuggestions = tips.map((t) {
+          _searchSuggestions = pois.map((t) {
             final m = t as Map<String, dynamic>;
             return {
               'name': (m['name'] ?? '').toString(),
@@ -248,12 +250,12 @@ class _FencePageState extends State<FencePage>
               'district': (m['district'] ?? '').toString(),
             };
           }).where((x) => x['location'] != null && x['location']!.isNotEmpty)
-           .take(8).toList();
+           .toList();
           _showSuggestions = _searchSuggestions.isNotEmpty;
         });
       }
     } catch (_) {
-      debugPrint('获取搜索建议失败');
+      debugPrint('获取POI建议失败');
     }
   }
 
@@ -265,87 +267,130 @@ class _FencePageState extends State<FencePage>
       _showSuggestions = false;
     });
     try {
-      // 优先使用POI搜索（更准）
       final dio = Dio();
+      final resp = await dio.get(
+        'https://restapi.amap.com/v3/place/text',
+        queryParameters: {
+          'key': AMapConfig.webServiceKey,
+          'keywords': keyword,
+          'output': 'JSON',
+          'offset': '1',
+          'page': '1',
+          'extensions': 'base',
+        },
+      );
+
+      // 高德API状态检查
+      if (resp.data['status'] != '1') {
+        final info = resp.data['info'] ?? '未知错误';
+        debugPrint('[POI搜索] API返回错误: $info');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('搜索失败: $info'), backgroundColor: Colors.orange),
+          );
+        }
+        return;
+      }
+
       Map<String, dynamic>? target;
-      String? poiLocation;
-
-      // 先尝试POI搜索
-      try {
-        final poiResp = await dio.get(
-          'https://restapi.amap.com/v3/place/text',
-          queryParameters: {
-            'key': AMapConfig.webServiceKey,
-            'keywords': keyword,
-            'output': 'JSON',
-          },
-        );
-        final pois = poiResp.data['pois'] as List?;
-        if (pois != null && pois.isNotEmpty) {
-          final first = pois[0] as Map<String, dynamic>;
-          poiLocation = first['location'] as String?;
-          target = {
-            'lat': double.tryParse(poiLocation!.split(',')[1]),
-            'lng': double.tryParse(poiLocation.split(',')[0]),
-            'address': first['address'] as String? ?? keyword,
-          };
-        }
-      } catch (_) { debugPrint('POI搜索失败，回退到地理编码'); }
-
-      // POI失败则回退到地理编码
-      if (target == null) {
-        final geoResp = await dio.get(
-          'https://restapi.amap.com/v3/geocode/geo',
-          queryParameters: {
-            'key': AMapConfig.webServiceKey,
-            'address': keyword,
-            'output': 'JSON',
-            'city': '',
-          },
-        );
-        final geocodes = geoResp.data['geocodes'] as List?;
-        if (geocodes == null || geocodes.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('未找到该地址'), backgroundColor: Colors.orange));
-          }
-          return;
-        }
-        final location = geocodes[0]['location'] as String? ?? '';
+      final pois = resp.data['pois'] as List?;
+      if (pois != null && pois.isNotEmpty) {
+        final first = pois[0] as Map<String, dynamic>;
+        final location = first['location'] as String? ?? '';
         final parts = location.split(',');
-        if (parts.length != 2) throw Exception('坐标格式错误');
-        target = {
-          'lat': double.parse(parts[1]),
-          'lng': double.parse(parts[0]),
-          'address': geocodes[0]['formattedAddress'] as String? ?? keyword,
-        };
+        if (parts.length == 2) {
+          final lat2 = double.tryParse(parts[1]);
+          final lng2 = double.tryParse(parts[0]);
+          if (lat2 != null && lng2 != null) {
+            target = {
+              'lat': lat2,
+              'lng': lng2,
+              'name': (first['name'] ?? '').toString(),
+              'address': (first['address'] ?? '').toString(),
+            };
+          }
+        }
+      }
+
+      // POI搜不到时回退到地理编码（处理纯地址如"深圳市南山区"）
+      if (target == null) {
+        try {
+          final geoResp = await dio.get(
+            'https://restapi.amap.com/v3/geocode/geo',
+            queryParameters: {
+              'key': AMapConfig.webServiceKey,
+              'address': keyword,
+              'output': 'JSON',
+              'city': '',
+            },
+          );
+          if (geoResp.data['status'] == '1') {
+            final geocodes = geoResp.data['geocodes'] as List?;
+            if (geocodes != null && geocodes.isNotEmpty) {
+              final loc = geocodes[0]['location'] as String? ?? '';
+              final parts = loc.split(',');
+              if (parts.length == 2) {
+                final glat = double.tryParse(parts[1]);
+                final glng = double.tryParse(parts[0]);
+                if (glat != null && glng != null) {
+                  target = {
+                    'lat': glat,
+                    'lng': glng,
+                    'name': keyword,
+                    'address': geocodes[0]['formatted_address'] as String? ?? keyword,
+                  };
+                }
+              }
+            }
+          }
+        } catch (_) {
+          debugPrint('地理编码回退失败');
+        }
+      }
+
+      if (target == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('未找到相关地点，试试更具体的关键词（如城市+地点名）'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
       }
 
       final lat = target['lat'] as double;
       final lng = target['lng'] as double;
+      final name = target['name'] as String;
       final address = target['address'] as String;
 
       if (mounted) {
         setState(() {
+          _searchCtrl.text = name;
           if (_isCircleMode) {
             _circleCenter = LatLng(lat, lng);
-            _circleNameCtrl.text = keyword;
+            _circleNameCtrl.text = name;
           } else {
             _polygonPoints.clear();
+            _polygonComplete = false;
             _polygonPoints.add(LatLng(lat, lng));
-            _polygonNameCtrl.text = keyword;
+            _polygonNameCtrl.text = name;
           }
         });
         _mapController?.moveCamera(
           CameraUpdate.newLatLngZoom(LatLng(lat, lng), 16),
         );
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已定位到: $address'), backgroundColor: Colors.green));
+          SnackBar(content: Text('已定位到: ${address.isNotEmpty ? "$name · $address" : name}'), backgroundColor: Colors.green),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('搜索失败: $e'), backgroundColor: Colors.red));
+          SnackBar(content: Text('搜索失败: $e'), backgroundColor: Colors.red),
+        );
       }
     } finally {
       if (mounted) setState(() => _searchLoading = false);
@@ -353,182 +398,15 @@ class _FencePageState extends State<FencePage>
   }
 
   Future<void> _editFence(Map<String, dynamic> fence) async {
-    final shapeType = fence['shapeType']?.toString() ?? 'circle';
-    final nameCtrl =
-        TextEditingController(text: fence['name']?.toString() ?? '');
-    final isCircle = shapeType == 'circle';
-
-    // 多边形 - 各顶点编辑
-    List<TextEditingController> latCtrls = [];
-    List<TextEditingController> lngCtrls = [];
-    if (!isCircle) {
-      final coords = (fence['coordinates'] as List?) ?? [];
-      for (final c in coords) {
-        latCtrls.add(TextEditingController(
-            text: (c['lat'] as num?)?.toStringAsFixed(6) ?? ''));
-        lngCtrls.add(TextEditingController(
-            text: (c['lng'] as num?)?.toStringAsFixed(6) ?? ''));
-      }
-    }
-
-    // 圆形 - 中心/半径
-    final latCtrl = isCircle ? TextEditingController(
-        text: (fence['centerLat'] as num?)?.toStringAsFixed(6) ?? '') : null;
-    final lngCtrl = isCircle ? TextEditingController(
-        text: (fence['centerLng'] as num?)?.toStringAsFixed(6) ?? '') : null;
-    final radiusCtrl = isCircle ? TextEditingController(
-        text: (fence['radiusMeters'] as num?)?.toString() ?? '500') : null;
-
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) {
-        // 动态添加顶点
-        void addPoint() {
-          latCtrls.add(TextEditingController(text: ''));
-          lngCtrls.add(TextEditingController(text: ''));
-          (ctx as dynamic).setState(() {});
-        }
-        void removePoint(int i) {
-          if (latCtrls.length <= 3) return; // 至少3个顶点
-          latCtrls[i].dispose();
-          lngCtrls[i].dispose();
-          latCtrls.removeAt(i);
-          lngCtrls.removeAt(i);
-          (ctx as dynamic).setState(() {});
-        }
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: Text(isCircle ? '编辑圆形围栏' : '编辑多边形围栏'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                          labelText: '围栏名称', hintText: '如：公司园区')),
-
-                  if (isCircle) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: latCtrl,
-                        decoration: const InputDecoration(labelText: '中心纬度'),
-                        keyboardType: TextInputType.number),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: lngCtrl,
-                        decoration: const InputDecoration(labelText: '中心经度'),
-                        keyboardType: TextInputType.number),
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: radiusCtrl,
-                        decoration: const InputDecoration(labelText: '半径(米)'),
-                        keyboardType: TextInputType.number),
-                  ] else ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Text('顶点坐标',
-                            style: TextStyle(fontWeight: FontWeight.w500)),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: addPoint,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('添加', style: TextStyle(fontSize: 13)),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    ...List.generate(latCtrls.length, (i) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            Text('${i + 1}.',
-                                style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: TextField(
-                                controller: latCtrls[i],
-                                decoration: const InputDecoration(
-                                    labelText: '纬度', isDense: true,
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                keyboardType: TextInputType.number,
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: TextField(
-                                controller: lngCtrls[i],
-                                decoration: const InputDecoration(
-                                    labelText: '经度', isDense: true,
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8)),
-                                keyboardType: TextInputType.number,
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ),
-                            if (latCtrls.length > 3)
-                              IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, size: 20, color: Colors.red),
-                                onPressed: () { removePoint(i); setDialogState(() {}); },
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                              ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('取消')),
-              FilledButton(
-                onPressed: () {
-                  final saveData = <String, dynamic>{'name': nameCtrl.text};
-                  if (isCircle) {
-                    saveData['centerLat'] = double.tryParse(latCtrl?.text ?? '') ?? 0;
-                    saveData['centerLng'] = double.tryParse(lngCtrl?.text ?? '') ?? 0;
-                    saveData['radiusMeters'] = double.tryParse(radiusCtrl?.text ?? '') ?? 300;
-                    saveData['shapeType'] = 'circle';
-                  } else {
-                    saveData['shapeType'] = 'polygon';
-                    saveData['coordinates'] = List.generate(latCtrls.length, (i) => {
-                      'lat': double.tryParse(latCtrls[i].text) ?? 0,
-                      'lng': double.tryParse(lngCtrls[i].text) ?? 0,
-                    });
-                  }
-                  Navigator.pop(ctx, saveData);
-                },
-                child: const Text('保存'),
-              ),
-            ],
-          ),
-        );
-      },
+    if (!mounted) return;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FenceEditPage(fence: fence),
+      ),
     );
-    if (result == null) return;
-    try {
-      await _api.put('/api/v1/fences/${fence['id']}', data: result);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('围栏已更新'), backgroundColor: Colors.green));
-        _loadFences();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('更新失败: $e'), backgroundColor: Colors.red));
-      }
+    if (changed == true && mounted) {
+      _loadFences();
     }
   }
 
@@ -561,13 +439,14 @@ class _FencePageState extends State<FencePage>
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('围栏创建成功'), backgroundColor: Colors.green));
+            content: Text('围栏创建成功'),
+            backgroundColor: Colors.green));
         _circleNameCtrl.clear();
         setState(() {
           _circleCenter = null;
           _circleRadius = 300;
         });
-        _loadFences();
+        await _loadFences();
         _tabController.animateTo(0);
       }
     } catch (e) {
@@ -589,6 +468,13 @@ class _FencePageState extends State<FencePage>
       }
       return;
     }
+    if (_polygonPoints.length < 3) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('请至少选取3个顶点'), backgroundColor: Colors.orange));
+      }
+      return;
+    }
     setState(() => _polygonSaving = true);
     try {
       final coords = _polygonPoints
@@ -602,13 +488,14 @@ class _FencePageState extends State<FencePage>
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('围栏创建成功'), backgroundColor: Colors.green));
+            content: Text('围栏创建成功'),
+            backgroundColor: Colors.green));
         _polygonNameCtrl.clear();
         setState(() {
           _polygonPoints.clear();
           _polygonComplete = false;
         });
-        _loadFences();
+        await _loadFences();
         _tabController.animateTo(0);
       }
     } catch (e) {
@@ -854,7 +741,14 @@ class _FencePageState extends State<FencePage>
           final time = ev['time']?.toString() ??
               ev['createdAt']?.toString() ?? '';
           final location = ev['location']?.toString() ??
-              ev['address']?.toString() ?? '';
+              ev['address']?.toString() ??
+              (ev['lat'] != null && ev['lng'] != null
+                  ? '${(ev['lat'] as num).toStringAsFixed(5)}, ${(ev['lng'] as num).toStringAsFixed(5)}'
+                  : '');
+          final accuracy = ev['accuracy'];
+          final accuracyText = accuracy != null
+              ? '精度: ${(accuracy as num).toStringAsFixed(0)}m'
+              : '';
           final userName =
               ev['userName']?.toString() ?? ev['name']?.toString() ?? '';
 
@@ -909,6 +803,10 @@ class _FencePageState extends State<FencePage>
                     Text(location,
                         style: TextStyle(
                             fontSize: 12, color: Colors.grey[500])),
+                  if (accuracyText.isNotEmpty)
+                    Text(accuracyText,
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey[400])),
                 ],
               ),
               isThreeLine: true,
@@ -927,118 +825,160 @@ class _FencePageState extends State<FencePage>
       children: [
         _buildModeToggle(),
         _buildSearchBar(),
-        Expanded(child: _buildMapWidget()),
+        Expanded(
+          child: Stack(
+            children: [
+              _buildMapWidget(),
+              // 搜索建议 overlay（在 Column 之外，避免 PlatformView resize 导致触摸丢失）
+              if (_showSuggestions && _searchSuggestions.isNotEmpty)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  top: 0,
+                  child: _buildSuggestionsOverlay(),
+                ),
+            ],
+          ),
+        ),
         _buildBottomControls(),
       ],
     );
   }
 
-  /// 地址搜索栏（带模糊搜索 + 下拉建议）
+  /// 搜索建议弹层（独立 widget 用作 Stack overlay，避免 Column 内动态变化 resize 地图）
+  Widget _buildSuggestionsOverlay() {
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 220),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: ListView.separated(
+        padding: EdgeInsets.zero,
+        shrinkWrap: true,
+        itemCount: _searchSuggestions.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 12, endIndent: 12),
+        itemBuilder: (context, i) {
+          final item = _searchSuggestions[i];
+          return ListTile(
+            dense: true,
+            leading: const Icon(Icons.location_on_outlined, size: 18, color: Colors.grey),
+            title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
+            subtitle: item['address'] != null && item['address']!.isNotEmpty
+                ? Text(item['address']!, style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    maxLines: 1, overflow: TextOverflow.ellipsis)
+                : null,
+            onTap: () {
+              _showSuggestions = false;
+              final loc = item['location'] ?? '';
+              final parts = loc.split(',');
+              if (parts.length == 2) {
+                final lat = double.tryParse(parts[1]);
+                final lng = double.tryParse(parts[0]);
+                if (lat != null && lng != null) {
+                  final name = item['name'] ?? '';
+                  final address = item['address'] ?? '';
+                  setState(() {
+                    _searchCtrl.text = name;
+                    if (_isCircleMode) {
+                      _circleCenter = LatLng(lat, lng);
+                      _circleNameCtrl.text = name;
+                    } else {
+                      _polygonPoints.clear();
+                      _polygonComplete = false;
+                      _polygonPoints.add(LatLng(lat, lng));
+                      _polygonNameCtrl.text = name;
+                    }
+                  });
+                  _mapController?.moveCamera(
+                    CameraUpdate.newLatLngZoom(LatLng(lat, lng), 16),
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('已定位到: ${address.isNotEmpty ? "$name · $address" : name}'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  _searchAddress(item['name'] ?? '');
+                }
+              } else {
+                _searchAddress(item['name'] ?? '');
+              }
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  /// 地址搜索栏（只有一行输入+按钮，不包含建议列表）
   Widget _buildSearchBar() {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       color: Colors.white,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 36,
-                  child: TextField(
-                    controller: _searchCtrl,
-                    style: const TextStyle(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: '搜索地址，如：郑州科技园',
-                      hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.grey[300]!),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Colors.blue),
-                      ),
-                      isDense: true,
-                      suffixIcon: _searchCtrl.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _searchCtrl.clear();
-                                setState(() {
-                                  _searchSuggestions = [];
-                                  _showSuggestions = false;
-                                });
-                              },
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                            )
-                          : null,
-                    ),
-                    onChanged: _onSearchChanged,
-                    onSubmitted: (_) => _searchAddress(_searchCtrl.text.trim()),
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: TextField(
+                controller: _searchCtrl,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '搜索地址，如：郑州科技园',
+                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 36,
-                child: ElevatedButton(
-                  onPressed: _searchLoading ? null : () => _searchAddress(_searchCtrl.text.trim()),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: Colors.grey[300]!),
                   ),
-                  child: _searchLoading
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.search, size: 20),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.blue),
+                  ),
+                  isDense: true,
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() {
+                              _searchSuggestions = [];
+                              _showSuggestions = false;
+                            });
+                          },
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                        )
+                      : null,
                 ),
-              ),
-            ],
-          ),
-          // 下拉建议列表
-          if (_showSuggestions && _searchSuggestions.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 220),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 2)),
-                ],
-              ),
-              margin: const EdgeInsets.only(top: 4),
-              child: ListView.separated(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: _searchSuggestions.length,
-                separatorBuilder: (_, __) => const Divider(height: 1, indent: 12, endIndent: 12),
-                itemBuilder: (context, i) {
-                  final item = _searchSuggestions[i];
-                  return ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.location_on_outlined, size: 18, color: Colors.grey),
-                    title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
-                    subtitle: item['address'] != null && item['address']!.isNotEmpty
-                        ? Text(item['address']!, style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                            maxLines: 1, overflow: TextOverflow.ellipsis)
-                        : null,
-                    onTap: () {
-                      _searchCtrl.text = item['name'] ?? '';
-                      _showSuggestions = false;
-                      _searchAddress(item['name'] ?? '');
-                    },
-                  );
-                },
+                onChanged: _onSearchChanged,
+                onSubmitted: (_) => _searchAddress(_searchCtrl.text.trim()),
               ),
             ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 36,
+            child: ElevatedButton(
+              onPressed: _searchLoading ? null : () => _searchAddress(_searchCtrl.text.trim()),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: _searchLoading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.search, size: 20),
+            ),
+          ),
         ],
       ),
     );
@@ -1161,7 +1101,7 @@ class _FencePageState extends State<FencePage>
     }
 
     return AMapWidget(
-      apiKey: AMapApiKey(
+      apiKey: const AMapApiKey(
         androidKey: AMapConfig.androidKey,
         iosKey: AMapConfig.iosKey,
       ),
@@ -1179,9 +1119,6 @@ class _FencePageState extends State<FencePage>
       zoomGesturesEnabled: true,
       scrollGesturesEnabled: true,
       rotateGesturesEnabled: true,
-      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-        Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
-      },
     );
   }
 
@@ -1252,20 +1189,25 @@ class _FencePageState extends State<FencePage>
               isDense: true,
             ),
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 44,
-            child: FilledButton.icon(
-              onPressed: _circleSaving ? null : _createCircleFence,
-              icon: _circleSaving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.save, size: 20),
-              label: Text(_circleSaving ? '保存中...' : '保存'),
-            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: FilledButton.icon(
+                    onPressed: _circleSaving ? null : _createCircleFence,
+                    icon: _circleSaving
+                        ? const SizedBox(
+                            width: 20, height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.save, size: 20),
+                    label: Text(_circleSaving ? '保存中...' : '保存'),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1367,19 +1309,24 @@ class _FencePageState extends State<FencePage>
               ),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 44,
-              child: FilledButton.icon(
-                onPressed: _polygonSaving ? null : _createPolygonFence,
-                icon: _polygonSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.save, size: 20),
-                label: Text(_polygonSaving ? '保存中...' : '保存'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 44,
+                    child: FilledButton.icon(
+                      onPressed: _polygonSaving ? null : _createPolygonFence,
+                      icon: _polygonSaving
+                          ? const SizedBox(
+                              width: 20, height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.save, size: 20),
+                      label: Text(_polygonSaving ? '保存中...' : '保存'),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],

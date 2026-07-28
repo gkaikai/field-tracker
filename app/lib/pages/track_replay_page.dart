@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/amap_location_service.dart';
 import '../config/amap_key.dart';
 
 class TrackReplayPage extends StatefulWidget {
@@ -22,6 +23,11 @@ class TrackReplayPage extends StatefulWidget {
 }
 
 class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingObserver {
+  // ─── 页面级缓存（进出页面时保留点位，避免每次从零拉取） ───
+  static final Map<String, List<Map<String, dynamic>>> _pointCache = {};
+  static final Map<String, int?> _timestampCache = {};
+  static const int _maxCacheEntries = 10; // 最多缓存10天，超限淘汰最早
+
   final ApiService _api = ApiService();
 
   DateTime _selectedDate = DateTime.now();
@@ -38,6 +44,12 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
   Set<Marker> _markers = {};
   Set<Polygon> _fencePolygons = {};
 
+  // 地图类型切换
+  MapType _mapType = MapType.normal;
+
+  // 当前用户位置（动态获取，用于地图初始视野）
+  LatLng? _currentLocation;
+
   // 轨迹统计
   double _totalDistanceKm = 0;
   // 轨迹列表已移除（数据量大，后台存着即可）
@@ -50,37 +62,50 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _loadTrack();
     _loadFences();
+    _fetchCurrentLocation();
     // 每15秒自动刷新轨迹（仅前台有效，省电省流量）
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) {
         if (!mounted || !_isForeground) return;
-        if (!_isPlaying) _loadTrack(isAutoRefresh: true);
+        if (!_isPlaying) {
+          _loadTrack(isAutoRefresh: true);
+          // 从已有的 AmapLocationService 读取当前位置（零网络开销，无客户端冲突）
+          _syncLocationFromService();
+        }
       },
     );
   }
   Future<void> _loadTrack({bool isAutoRefresh = false}) async {
     if (_isLoadingTrack) return; // 请求去重
     _isLoadingTrack = true;
-    
+
+    final dateStr =
+        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+    final auth = AuthService();
+    final userId = auth.userId ?? 'me';
+    final cacheKey = '$userId|$dateStr';
+
     if (!isAutoRefresh) {
+      // 首次加载：优先从缓存恢复，立即展示，不等网络
+      final cached = _pointCache[cacheKey];
+      if (cached != null && cached.isNotEmpty) {
+        _points = cached;  // 注意：会在 initState 同步路径执行，此时尚未 build
+        _lastFetchedTimestamp = _timestampCache[cacheKey];
+        // 地图还未创建，_updateMap 会在 onMapCreated 中由 _points 触发
+      }
       setState(() {
-        _isLoading = true;
+        _isLoading = _points.isEmpty;  // 有缓存就不用 loading 转圈
         _error = null;
         _sliderValue = 0;
       });
     }
 
     try {
-      final dateStr =
-          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      final auth = AuthService();
-      final userId = auth.userId ?? 'me';
-
       // 自动刷新时只拉增量数据（since=最新时间戳）
-      // 全量首次加载时不传since，拉取当天全部数据
-      final queryParams = <String, dynamic>{'date': dateStr};
-      if (isAutoRefresh && _lastFetchedTimestamp != null) {
+      // 首次加载：有缓存则只拉增量，无缓存则全量
+      final queryParams = <String, dynamic>{'date': dateStr, 'limit': 1000};
+      if (_lastFetchedTimestamp != null) {
         queryParams['since'] = _lastFetchedTimestamp.toString();
       }
 
@@ -96,40 +121,58 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
 
       if (!mounted) return;
 
-      setState(() {
-        if (isAutoRefresh && _lastFetchedTimestamp != null) {
-          // 增量模式：追加新数据
-          if (newPoints.isNotEmpty) {
-            final oldLen = _points.length;
+      if (_lastFetchedTimestamp != null && isAutoRefresh) {
+        // 增量模式：追加新数据（自动刷新）
+        if (newPoints.isNotEmpty) {
+          final oldLen = _points.length;
+          setState(() {
             _points = [..._points, ...newPoints];
-            // 增量更新地图：仅从 oldLen-1 开始追加新段
-            try {
-              _updateMap(fitToTrack: false, incrementalFrom: oldLen);
-            } catch (mapErr, mapSt) {
-              debugPrint('=== _updateMap error ===\n$mapErr\n$mapSt');
-            }
+            _error = null;
+          });
+          // 增量更新地图（在 setState 外调用，避免嵌套）
+          try {
+            _updateMap(fitToTrack: false, incrementalFrom: oldLen);
+          } catch (mapErr, mapSt) {
+            debugPrint('=== _updateMap error ===\n$mapErr\n$mapSt');
           }
-        } else {
-          // 全量模式：替换全部数据 + 重置进度条
-          _points = newPoints;
-          _sliderValue = 0;
         }
-        _isLoading = false;
-        _sliderValue = _sliderValue.clamp(0, _points.isNotEmpty ? (_points.length - 1).toDouble() : 0);
-      });
-
-      // 更新最后时间戳
-      if (latestTimestamp != null) {
-        _lastFetchedTimestamp = latestTimestamp;
-      }
-
-      // 全量模式才需要在这里调 _updateMap（增量已在 setState 内处理）
-      if (!isAutoRefresh) {
+      } else {
+        // 首次加载或缓存恢复后：替换/合并点位
+        final bool hasCached = _points.isNotEmpty;
+        List<Map<String, dynamic>> merged;
+        if (hasCached) {
+          // 缓存兜底 + 新增量合并（防重复）
+          final existingTimestamps = _points.map((p) => p['timestamp'] as int).toSet();
+          final fresh = newPoints.where((p) => !existingTimestamps.contains(p['timestamp'])).toList();
+          merged = [..._points, ...fresh];
+        } else {
+          merged = newPoints;
+        }
+        setState(() {
+          _points = merged;
+          _error = null;
+          _sliderValue = 0;
+          _isLoading = false;
+        });
+        // 全量更新地图
         try {
-          _updateMap(fitToTrack: true);
+          _updateMap(fitToTrack: _currentLocation == null);
         } catch (mapErr, mapSt) {
           debugPrint('=== _updateMap error ===\n$mapErr\n$mapSt');
         }
+      }
+
+      // 更新最后时间戳 & 写缓存
+      if (latestTimestamp != null) {
+        _lastFetchedTimestamp = latestTimestamp;
+        _timestampCache[cacheKey] = latestTimestamp;
+      }
+      _pointCache[cacheKey] = List.from(_points); // 深拷贝快照
+      // 淘汰超出上限的最旧缓存
+      while (_pointCache.length > _maxCacheEntries) {
+        final oldest = _pointCache.keys.reduce((a, b) => a.compareTo(b) < 0 ? a : b);
+        _pointCache.remove(oldest);
+        _timestampCache.remove(oldest);
       }
     } catch (e, st) {
       if (!mounted) return;
@@ -190,6 +233,59 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
       if (mounted) setState(() => _fencePolygons = fences);
     } catch (e) {
       debugPrint('[TrackReplay] 加载围栏失败: $e');
+    }
+  }
+
+  /// 获取当前用户实时位置（用于地图初始视野）
+  Future<void> _fetchCurrentLocation() async {
+    // 直接从已有的 AmapLocationService 读取（零网络开销）
+    final svc = AmapLocationService();
+    if (svc.currentLat != null && svc.currentLng != null) {
+      if (mounted) {
+        setState(() {
+          _currentLocation = LatLng(svc.currentLat!, svc.currentLng!);
+        });
+        if (_mapController != null) {
+          _mapController!.moveCamera(CameraUpdate.newLatLng(_currentLocation!));
+        }
+      }
+      return;
+    }
+    // 兜底：走API获取
+    try {
+      final resp = await _api.get('/api/v1/location/current');
+      final data = resp.data is Map ? (resp.data as Map<String, dynamic>) : null;
+      if (data != null && data['lng'] != null && data['lat'] != null) {
+        if (mounted) {
+          setState(() {
+            _currentLocation = LatLng(
+              (data['lat'] as num).toDouble(),
+              (data['lng'] as num).toDouble(),
+            );
+          });
+          if (_mapController != null) {
+            _mapController!.moveCamera(CameraUpdate.newLatLng(_currentLocation!));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[TrackReplay] 获取当前位置失败: $e');
+    }
+  }
+
+  /// 从已有的 AmapLocationService 读取当前位置（零网络开销，无定位客户端冲突）
+  void _syncLocationFromService() {
+    if (!mounted || _isPlaying) return;
+    final svc = AmapLocationService();
+    final lat = svc.currentLat;
+    final lng = svc.currentLng;
+    if (lat == null || lng == null) return;
+    final loc = LatLng(lat, lng);
+    setState(() {
+      _currentLocation = loc;
+    });
+    if (_mapController != null) {
+      _mapController!.moveCamera(CameraUpdate.newLatLng(loc));
     }
   }
 
@@ -270,37 +366,103 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     final List<Polyline> newPolylines = [];
 
     if (_points.length > 1) {
-      // 增量模式：从 incrementalFrom-1 开始只计算新增段
-      // 全量模式：从 0 开始
-      final startIdx = incrementalFrom > 0
-          ? (incrementalFrom - 1).clamp(0, _points.length - 2)
-          : 0;
+      if (incrementalFrom > 0) {
+        // 增量模式：从 incrementalFrom-1 开始逐个画段
+        final startIdx = (incrementalFrom - 1).clamp(0, _points.length - 2);
+        for (int i = startIdx; i < _points.length - 1; i++) {
+          final p1 = _points[i];
+          final p2 = _points[i + 1];
 
-      for (int i = startIdx; i < _points.length - 1; i++) {
-        final p1 = _points[i];
-        final p2 = _points[i + 1];
+          final t1 = p1['timestamp'] as int;
+          final t2 = p2['timestamp'] as int;
+          final gapSec = (t2 - t1).abs() ~/ 1000;
 
-        final lat1 = p1['lat'] as double;
-        final lng1 = p1['lng'] as double;
-        final lat2 = p2['lat'] as double;
-        final lng2 = p2['lng'] as double;
+          final d = _haversineDistance(
+            p1['lat'] as double, p1['lng'] as double,
+            p2['lat'] as double, p2['lng'] as double,
+          ) / 1000.0;
+          if (i != startIdx && gapSec <= 300) totalDistKm += d;
 
-        final t1 = p1['timestamp'] as int;
-        final t2 = p2['timestamp'] as int;
-        final gapSec = (t2 - t1).abs() ~/ 1000;
-        if (gapSec > 300) continue;
+          newPolylines.add(Polyline(
+            points: [
+              LatLng(p1['lat'] as double, p1['lng'] as double),
+              LatLng(p2['lat'] as double, p2['lng'] as double),
+            ],
+            color: _speedColor(_getSegmentSpeed(p1, p2)),
+            width: 6,
+          ));
+        }
+      } else {
+        // 全量模式：按速度颜色变化点切割，同色段合并为一条Polyline
+        // 既避免了碎片接头（远少于每对一段），又保留了速度颜色信息
+        List<LatLng> currentLatLngs = [];
+        Color? currentColor;
+        double segDist = 0;
+        int? lastTimestamp;
 
-        // 增量模式：跳过重叠段的距离（已在_totalDistanceKm中计过）
-        if (!(incrementalFrom > 0 && i == startIdx)) {
-          totalDistKm += _haversineDistance(lat1, lng1, lat2, lng2) / 1000.0;
+        void flushSegment() {
+          if (currentLatLngs.length >= 2) {
+            newPolylines.add(Polyline(
+              points: List.from(currentLatLngs),
+              color: currentColor!,
+              width: 6,
+            ));
+          }
         }
 
-        final speedKmh = _getSegmentSpeed(p1, p2);
-        newPolylines.add(Polyline(
-          points: [LatLng(lat1, lng1), LatLng(lat2, lng2)],
-          color: _speedColor(speedKmh),
-          width: 6,
-        ));
+        for (int i = 0; i < _points.length; i++) {
+          final p = _points[i];
+          final lat = p['lat'] as double;
+          final lng = p['lng'] as double;
+          final t = p['timestamp'] as int;
+          final latLng = LatLng(lat, lng);
+
+          if (currentLatLngs.isEmpty) {
+            currentLatLngs.add(latLng);
+            lastTimestamp = t;
+            continue;
+          }
+
+          // 检查时间间隔
+          final gapSec = (t - lastTimestamp!).abs() ~/ 1000;
+          if (gapSec > 300) {
+            // 大间隔：结算当前段，新段从当前点开始
+            flushSegment();
+            currentLatLngs = [latLng];
+            lastTimestamp = t;
+            continue;
+          }
+
+          // 计算当前段（上一点到当前点）的速度颜色
+          final prev = _points[i - 1];
+          final speedKmh = _getSegmentSpeed(prev, p);
+          final segColor = _speedColor(speedKmh);
+
+          currentColor ??= segColor;
+
+          if (segColor != currentColor) {
+            // 颜色变化：结算当前段，新段包含上一个点和当前点
+            flushSegment();
+            currentLatLngs = [
+              LatLng(prev['lat'] as double, prev['lng'] as double),
+              latLng,
+            ];
+            currentColor = segColor;
+          } else {
+            currentLatLngs.add(latLng);
+          }
+
+          // 累加距离（跳过 >300s 间隔）
+          segDist += _haversineDistance(
+            prev['lat'] as double, prev['lng'] as double,
+            lat, lng,
+          ) / 1000.0;
+          lastTimestamp = t;
+        }
+
+        // 最后一段
+        flushSegment();
+        totalDistKm = segDist;
       }
 
       // 总时间
@@ -469,6 +631,9 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
       setState(() {
         _selectedDate = picked;
         _lastFetchedTimestamp = null;
+        _points = [];          // 清空旧日期点位
+        _polylines = {};       // 清除旧折线
+        _markers = {};         // 清除旧标记
       });
       _loadTrack();
     }
@@ -610,11 +775,10 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
 
       final size = await file.length();
       if (size == 0) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('导出失败：生成的 GPX 文件为空')),
-          );
-        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('导出失败：生成的 GPX 文件为空')),
+        );
         return;
       }
 
@@ -624,11 +788,10 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
         text: '轨迹回放 - $dateStr',
       );
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出轨迹失败: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出轨迹失败: $e')),
+      );
     }
   }
 
@@ -682,9 +845,11 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _isForeground = state == AppLifecycleState.resumed;
-    // 回到前台立即刷新，不等下次定时器 tick
+    // 回到前台立即刷新轨迹，不等下次定时器 tick
+    // 当前位置从 AmapLocationService 读取
     if (!_isForeground || !mounted || _isPlaying) return;
     _loadTrack(isAutoRefresh: true);
+    _syncLocationFromService();
   }
 
   @override
@@ -781,14 +946,29 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
                       hasShow: true,
                       hasAgree: true,
                     ),
+                    // 注意：不用 myLocationStyleOptions，避免与 AmapLocationService 的
+                    // 原生AMapLocationClient实例冲突。位置数据从 AmapLocationService 读取。
                     onMapCreated: (controller) {
                       _mapController = controller;
-                      if (_points.isNotEmpty) _fitMapToTrack(
-                        _points.map((p) => LatLng(p['lat'] as double, p['lng'] as double)).toList(),
-                      );
+                      if (_points.isNotEmpty) {
+                        // 从缓存恢复的点位立即渲染折线
+                        _updateMap(fitToTrack: _currentLocation == null);
+                        if (_currentLocation == null) {
+                          // 无当前位置时缩放到轨迹范围
+                          _fitMapToTrack(
+                            _points.map((p) => LatLng(p['lat'] as double, p['lng'] as double)).toList(),
+                          );
+                        } else {
+                          // 有当前位置时移到当前位置（不缩放到轨迹全局）
+                          controller.moveCamera(CameraUpdate.newLatLng(_currentLocation!));
+                        }
+                        // 轨迹线作为叠加层
+                      } else if (_currentLocation != null) {
+                        controller.moveCamera(CameraUpdate.newLatLng(_currentLocation!));
+                      }
                     },
-                    initialCameraPosition: const CameraPosition(
-                      target: LatLng(22.543096, 114.057865),
+                    initialCameraPosition: CameraPosition(
+                      target: _currentLocation ?? const LatLng(22.543096, 114.057865),
                       zoom: 15,
                     ),
                     polylines: _polylines,
@@ -797,6 +977,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
                     compassEnabled: true,
                     scaleEnabled: true,
                     zoomGesturesEnabled: true,
+                    mapType: _mapType,
                     scrollGesturesEnabled: true,
                   ),
                 // 加载中遮罩
@@ -846,6 +1027,29 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                  ),
+                  // ---- 卫星/标准地图切换按钮 ----
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: FloatingActionButton.small(
+                      heroTag: 'track_map_type',
+                      onPressed: () {
+                        setState(() {
+                          _mapType = _mapType == MapType.normal
+                              ? MapType.satellite
+                              : MapType.normal;
+                        });
+                      },
+                      backgroundColor: Colors.white,
+                      child: Icon(
+                        _mapType == MapType.normal
+                            ? Icons.satellite_alt
+                            : Icons.map,
+                        color: Colors.blue,
+                        size: 20,
                       ),
                     ),
                   ),

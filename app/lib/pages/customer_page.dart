@@ -123,7 +123,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: suggestions.length > 8 ? 8 : suggestions.length,
+                  itemCount: suggestions.length > 15 ? 15 : suggestions.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final s = suggestions[i];
@@ -205,8 +205,9 @@ class _CustomerPageState extends State<CustomerPage> {
               try {
                 if (edit) { await _api.put('/api/v1/customers/${existing['id']}', data: data); }
                 else { await _api.post('/api/v1/customers', data: data); }
+                if (!ctx.mounted) return;
                 Navigator.pop(ctx); _load();
-              } catch (e) { ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${edit?"编辑":"添加"}失败: $e'))); }
+              } catch (e) { if (!ctx.mounted) return; ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${edit?"编辑":"添加"}失败: $e'))); }
             }, child: Text(edit ? '保存' : '添加')),
           ],
         );
@@ -218,8 +219,8 @@ class _CustomerPageState extends State<CustomerPage> {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
       title: const Text('删除客户'), content: Text('确定删除"${c['name']}"？'),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除', style: TextStyle(color: Colors.white)),
-          style: FilledButton.styleFrom(backgroundColor: Colors.red))],
+        FilledButton(onPressed: () => Navigator.pop(ctx, true),
+          style: FilledButton.styleFrom(backgroundColor: Colors.red), child: const Text('删除', style: TextStyle(color: Colors.white)))],
     ));
     if (ok != true) return;
     try { await _api.delete('/api/v1/customers/${c['id']}'); _load(); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('已删除'),backgroundColor:Colors.green)); }

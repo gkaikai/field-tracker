@@ -14,17 +14,58 @@ if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
+// 允许的图片 MIME 类型（fileFilter + 扩展名推导共享同一列表）
+const ALLOWED_IMAGE_MIMES: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+};
+
+/// 文件魔数签名表（用于校验文件内容真实性）
+const MAGIC_SIGNATURES: Record<string, Uint8Array[]> = {
+  'image/jpeg': [new Uint8Array([0xFF, 0xD8, 0xFF])],
+  'image/png': [new Uint8Array([0x89, 0x50, 0x4E, 0x47])],
+  'image/gif': [new Uint8Array([0x47, 0x49, 0x46, 0x38])],
+  'image/webp': [new Uint8Array([0x52, 0x49, 0x46, 0x46])], // RIFF....WEBP
+};
+
+/// 校验文件前4字节是否匹配预期魔数
+function validateMagicNumber(filePath: string, mimeType: string): boolean {
+  try {
+    const sigs = MAGIC_SIGNATURES[mimeType];
+    if (!sigs) return true; // HEIC/HEIF 跳过魔数校验
+    const buf = Buffer.alloc(4);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buf, 0, 4, 0);
+    fs.closeSync(fd);
+    return sigs.some(sig => sig.every((b, i) => b === buf[i]));
+  } catch {
+    return false;
+  }
+}
+
 // multer 配置
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
+    // 从 MIME type 推导扩展名，不信任客户端原始文件名
+    const ext = ALLOWED_IMAGE_MIMES[file.mimetype] || '.jpg';
     cb(null, `photo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
   },
 });
 const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (_req: any, file: any, cb: any) => {
+    if (ALLOWED_IMAGE_MIMES[file.mimetype]) {
+      cb(null, true);
+    } else {
+      cb(new Error(`仅支持 ${Object.keys(ALLOWED_IMAGE_MIMES).map(m => m.split('/')[1].toUpperCase()).join('/')} 格式的图片`));
+    }
+  },
 });
 
 // POST /api/v1/upload/photo — 上传水印照片
@@ -38,6 +79,18 @@ router.post('/photo', upload.single('photo'), async (req: Request, res: Response
 
     const bizType = req.body.bizType || 'attendance';
     const bizId = req.body.bizId || null;
+    // 校验 bizType 有效性
+    const validBizTypes = ['attendance', 'visit', 'report', 'customer'];
+    if (!validBizTypes.includes(bizType)) {
+      return res.status(400).json({ code: 'BAD_REQUEST', message: '无效的业务类型' });
+    }
+
+    // 校验文件魔数（防止伪造MIME类型上传非图片文件）
+    if (!validateMagicNumber(file.path, file.mimetype)) {
+      // 删除非法文件
+      fs.unlink(file.path, () => {});
+      return res.status(400).json({ code: 'INVALID_FILE', message: '文件内容与MIME类型不匹配，仅允许图片文件' });
+    }
     const url = `/uploads/photos/${file.filename}`;
 
     const result = await pgPool.query(

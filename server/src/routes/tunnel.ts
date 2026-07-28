@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
@@ -7,7 +8,8 @@ let currentTunnelUrl = process.env.TUNNEL_URL || '';
 let backupTunnelUrl = '';  // 备用隧道URL
 
 // ── GET /api/v1/tunnel — APK轮询获取最新隧道URL（含备用） ──
-router.get('/', (_req: Request, res: Response) => {
+// 需要认证，防止泄露内网入口
+router.get('/', authMiddleware, (_req: Request, res: Response) => {
   res.json({
     url: currentTunnelUrl,
     backup_url: backupTunnelUrl,

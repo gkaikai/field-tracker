@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:field_tracker/services/auth_service.dart';
 import 'package:field_tracker/config/app_config.dart';
 
 void main() {
@@ -52,8 +51,8 @@ void main() {
 
   group('密码验证', () {
     test('合法密码6~50位', () {
-      expect('test123456'.length, greaterThanOrEqualTo(6));
-      expect('test123456'.length, lessThanOrEqualTo(50));
+      expect('123456'.length, greaterThanOrEqualTo(6));
+      expect('123456'.length, lessThanOrEqualTo(50));
     });
 
     test('超长密码应拒绝', () {

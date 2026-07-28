@@ -55,7 +55,7 @@ class _AttendancePageState extends State<AttendancePage> {
     if (timestamp == null) return '--';
     try {
       final dt = DateTime.parse(timestamp);
-      final offset = Duration(hours: 8);
+      const offset = Duration(hours: 8);
       final local = dt.add(offset);
       return '${local.month}/${local.day} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
     } catch (_) {

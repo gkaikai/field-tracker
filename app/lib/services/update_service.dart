@@ -1,16 +1,19 @@
-/// APP版本更新检测服务
-///
-/// 通过 GitHub Releases API 检查最新版本，支持后台下载和静默安装。
-///
-/// 使用流程:
-///   1. APP启动时调用 UpdateService.checkForUpdate()
-///   2. 如果有新版本，弹出更新对话框
-///   3. 用户点击"立即更新" → 下载APK → 自动跳转安装
-///
-/// 需要权限:
-///   - Android: android.permission.INTERNET
-///   - Android: android.permission.REQUEST_INSTALL_PACKAGES (Android 8+)
-///   - Android: android.permission.WRITE_EXTERNAL_STORAGE (Android < 10)
+// APP版本更新检测服务
+//
+// 通过 APP 自己的服务器检查最新版本，支持后台下载和静默安装。
+// 不依赖 GitHub Releases（解决国内网络不稳定问题）。
+//
+// 数据来源：服务器 GET /app-version.json
+// 下载来源：gofile.io CDN（国内加速） 或 服务器 /download-apk
+//
+// 使用流程:
+//   1. APP启动时调用 UpdateService.checkForUpdate()
+//   2. 如果有新版本，弹出更新对话框
+//   3. 用户点击"立即更新" → 下载APK → 自动跳转安装
+// 需要权限:
+//   - Android: android.permission.INTERNET
+//   - Android: android.permission.REQUEST_INSTALL_PACKAGES (Android 8+)
+//   - Android: android.permission.WRITE_EXTERNAL_STORAGE (Android < 10)
 
 import 'dart:convert';
 import 'dart:io';
@@ -20,22 +23,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../config/app_config.dart';
 
 /// 更新信息模型
 class UpdateInfo {
-  /// 最新版本号 (如 "1.0.1")
   final String version;
-
-  /// GitHub下载地址
   final String downloadUrl;
-
-  /// 国内加速下载地址（如 gofile.io）
   final String? fastDownloadUrl;
-
-  /// 更新日志
   final String changelog;
-
-  /// 是否强制更新
   final bool forceUpdate;
 
   UpdateInfo({
@@ -45,11 +40,6 @@ class UpdateInfo {
     this.changelog = '',
     this.forceUpdate = false,
   });
-
-  /// 当前版本是否低于最新版本
-  /// 使用静态方法 isNewerThan() 替代
-  @Deprecated('使用 UpdateService.isNewerThan() 替代')
-  bool get hasNewVersion => UpdateService.isNewerThan(version, '');
 
   factory UpdateInfo.fromJson(Map<String, dynamic> json) {
     return UpdateInfo(
@@ -64,21 +54,15 @@ class UpdateInfo {
 
 /// 版本更新服务
 class UpdateService {
-  static const String _githubOwner = 'gkaikai';
-  static const String _githubRepo = 'field-tracker';
-  static const String _apiUrl =
-      'https://api.github.com/repos/$_githubOwner/$_githubRepo/releases/latest';
-
   static bool _isDownloading = false;
 
-  /// 获取当前APP版本号（每次重新获取，安装新版后立即生效）
+  /// 获取当前APP版本号
   static Future<String> getCurrentVersion() async {
     final info = await PackageInfo.fromPlatform();
     return info.version;
   }
 
   /// 版本号比较 (语义化版本比较)
-  /// 返回 true 如果 latest > current
   static bool isNewerThan(String latest, String current) {
     try {
       final latestParts = latest.replaceAll('v', '').split('.');
@@ -100,56 +84,42 @@ class UpdateService {
     }
   }
 
-  /// 从 GitHub Releases API 检查最新版本
+  /// 从APP自己的服务器检查最新版本（替代GitHub Releases）
+  ///
+  /// 访问路径：{baseUrl}/app-version.json
+  /// 服务器通过 express.static('public') 提供该文件
   static Future<UpdateInfo?> checkForUpdate() async {
+    final baseUrl = AppConfig.baseUrl;
+    if (baseUrl.isEmpty) {
+      debugPrint('[Update] baseUrl 为空，跳过版本检查');
+      return null;
+    }
+
     try {
+      final url = '$baseUrl/app-version.json';
+      debugPrint('[Update] 检查版本: $url');
       final response = await http.get(
-        Uri.parse(_apiUrl),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'FieldTracker-App',
-        },
+        Uri.parse(url),
+        headers: {'User-Agent': 'FieldTracker-App'},
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
-        debugPrint('[Update] API请求失败: ${response.statusCode}');
+        debugPrint('[Update] 服务器返回: ${response.statusCode}');
         return null;
       }
 
       final data = json.decode(response.body) as Map<String, dynamic>;
+      final version = data['version'] as String? ?? '';
+      final downloadUrl = data['downloadUrl'] as String? ?? '';
 
-      // 获取版本号 (tag_name 如 "v1.0.1")
-      final tagName = data['tag_name'] as String? ?? '';
-
-      // 获取更新日志 (body)
-      final body = data['body'] as String? ?? '';
-
-      // 尝试从body中提取加速下载链接（如 `快速下载: https://gofile.io/d/xxx`）
-      String? fastDownloadUrl;
-      final urlMatch = RegExp(r'快速下载:\s*(https?://\S+)').firstMatch(body);
-      if (urlMatch != null) {
-        fastDownloadUrl = urlMatch.group(1);
-      }
-
-      // 获取第一个APK附件的下载地址
-      String downloadUrl = '';
-      final assets = data['assets'] as List<dynamic>? ?? [];
-      for (final asset in assets) {
-        final name = asset['name'] as String? ?? '';
-        if (name.endsWith('.apk')) {
-          downloadUrl = asset['browser_download_url'] as String? ?? '';
-          break;
-        }
-      }
-
-      if (tagName.isEmpty || downloadUrl.isEmpty) {
-        debugPrint('[Update] 未找到版本信息或APK下载链接');
+      if (version.isEmpty || downloadUrl.isEmpty) {
+        debugPrint('[Update] app-version.json 缺少版本或下载地址');
         return null;
       }
 
       // 检查版本号
       final currentVersion = await getCurrentVersion();
-      final hasNew = isNewerThan(tagName, currentVersion);
+      final hasNew = isNewerThan(version, currentVersion);
 
       if (!hasNew) {
         debugPrint('[Update] 当前已是最新版本 ($currentVersion)');
@@ -157,11 +127,11 @@ class UpdateService {
       }
 
       return UpdateInfo(
-        version: tagName,
+        version: version,
         downloadUrl: downloadUrl,
-        fastDownloadUrl: fastDownloadUrl,
-        changelog: body,
-        forceUpdate: false,
+        fastDownloadUrl: downloadUrl, // 同一个源
+        changelog: data['changelog'] as String? ?? '',
+        forceUpdate: data['forceUpdate'] as bool? ?? false,
       );
     } catch (e) {
       debugPrint('[Update] 检查更新失败: $e');
@@ -179,8 +149,8 @@ class UpdateService {
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: !info.forceUpdate,
-      builder: (ctx) => WillPopScope(
-        onWillPop: () async => !info.forceUpdate,
+      builder: (ctx) => PopScope(
+        canPop: !info.forceUpdate,
         child: AlertDialog(
           title: Row(
             children: [
@@ -263,7 +233,7 @@ class UpdateService {
         }
       }
 
-      // 显示进度对话框（可更新）
+      // 显示进度对话框
       if (!context.mounted) return;
       showDialog(
         context: context,
@@ -305,29 +275,21 @@ class UpdateService {
           ),
       );
 
-      // 下载APK - 优先用国内加速，失败则用GitHub直链
+      // 下载APK - 支持多源切换
       final urls = <String>[];
-      if (info.fastDownloadUrl != null) {
-        // 将 gofile.io 的下载页面URL转为直接下载链接
-        // https://gofile.io/d/xxx → https://pub-xxxxx.gofile.io/download/xxx
-        final pageUrl = info.fastDownloadUrl!;
-        final match = RegExp(r'gofile\.io/d/([a-zA-Z0-9]+)').firstMatch(pageUrl);
-        if (match != null) {
-          final code = match.group(1)!;
-          urls.add(
-              'https://pub-362f39fef5af44aabb2cf15a7b6bd55b.r2.dev/$code');
-          urls.add('https://gofile.io/download/$code');
-        } else {
-          urls.add(pageUrl);
-        }
-      }
       urls.add(info.downloadUrl);
+      if (info.fastDownloadUrl != null && info.fastDownloadUrl != info.downloadUrl) {
+        urls.add(info.fastDownloadUrl!);
+      }
+      // 兜底：从服务器直接下载
+      if (AppConfig.baseUrl.isNotEmpty) {
+        urls.add('${AppConfig.baseUrl}/download-apk');
+      }
 
       http.Response? response;
       for (int i = 0; i < urls.length; i++) {
+        final client = http.Client();
         try {
-          // 带进度追踪的下载
-          final client = http.Client();
           final request = http.Request('GET', Uri.parse(urls[i]));
           final streamedResp = await client.send(request)
               .timeout(const Duration(minutes: 5));
@@ -344,7 +306,6 @@ class UpdateService {
           }
           response = http.Response.bytes(bytes, streamedResp.statusCode,
               headers: streamedResp.headers);
-          client.close();
 
           if (response.statusCode == 200) break;
         } catch (_) {
@@ -368,6 +329,8 @@ class UpdateService {
             _isDownloading = false;
             return;
           }
+        } finally {
+          client.close();
         }
       }
 
@@ -382,7 +345,7 @@ class UpdateService {
 
       // 关闭进度对话框
       if (context.mounted) {
-        Navigator.of(context).pop(); // 关闭进度对话框
+        Navigator.of(context).pop();
       }
 
       // 跳转安装
@@ -396,7 +359,7 @@ class UpdateService {
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.of(context).pop(); // 关闭进度对话框
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('更新失败: $e')),
         );

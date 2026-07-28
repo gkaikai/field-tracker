@@ -41,7 +41,7 @@ def curl(method, path, data=None, expect=None, label="", auth=True):
 
 def login():
     global TOKEN
-    r = subprocess.run("curl -s --connect-timeout 5 http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"test123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
+    r = subprocess.run("curl -s --connect-timeout 5 http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
     if r.returncode == 0 and 'token' in r.stdout:
         TOKEN = json.loads(r.stdout)['token']
         return True

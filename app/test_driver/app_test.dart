@@ -1,5 +1,5 @@
-/// 真实设备上的页面冒烟测试 — 遍历所有功能页面
-/// 运行: flutter drive --driver=test_driver/integration_test.dart --target=test_driver/app_test.dart
+// 真实设备上的页面冒烟测试 — 遍历所有功能页面
+// 运行: flutter drive --driver=test_driver/integration_test.dart --target=test_driver/app_test.dart
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:field_tracker/config/app_config.dart';

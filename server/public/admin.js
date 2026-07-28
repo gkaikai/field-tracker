@@ -1,7 +1,9 @@
 let TOKEN = '';
 let refreshTimer = null;
-let fenceMap = null, fenceMarkers = [], fenceCircle = null, fencePolyline = null, fencePolygon = null;
+let fenceMap = null, fenceMarkers = [], fenceCircle = null, fencePolyline = null, fencePolygon = null, fenceSearchMarker = null;
 let fenceMode = 'circle', polygonPoints = [];
+let fencePlaceSearch = null, fenceAuto = null;
+let _fenceDocListenersBound = false;
 let monitorMap = null, monitorTimer = null, monitorWS = null, monitorMks = [];
 let trackMap = null, trackPolyline = null, trackMarker = null;
 let trackAnim = null, trackPlaying = false, trackIdx = 0, trackSpeed = 1;
@@ -10,6 +12,7 @@ const TRACK_SPEEDS = [1, 2, 5, 10];
 
 // 从localStorage恢复登录
 const savedToken = localStorage.getItem('admin_token');
+const _validTabs = ['dashboard','monitor','rules','org','reports','fences','customers','photos','users'];
 if (savedToken) {
   TOKEN = savedToken;
   window._userId = localStorage.getItem('admin_userId') || '';
@@ -18,7 +21,6 @@ if (savedToken) {
   document.getElementById('mainView').style.display = 'block';
   // 从URL hash恢复标签页，刷新不跳回仪表盘
   const _initTab = window.location.hash.replace('#', '');
-  const _validTabs = ['dashboard','monitor','rules','org','reports','fences','customers','photos','users'];
   showTab(_validTabs.includes(_initTab) ? _initTab : 'dashboard');
   // 加载版本信息
   fetch('/admin-version.json').then(r => r.json()).then(v => {
@@ -94,7 +96,7 @@ function showTab(tab) {
   if (tab === 'users') loadUsers();
   // 更新URL hash，刷新回到当前页面，也支持浏览器前进/后退
   const _tabMap = { tracks: 'monitor' };
-  window.location.hash = '#' + (_tabMap[tab] || tab);
+  history.replaceState(null, '', '#' + (_tabMap[tab] || tab));
 }
 
 // ========== 高德地图工具 ==========
@@ -120,10 +122,15 @@ function addLayerToggle(map) {
   btn.role = 'button'; btn.tabIndex = 0;
   btn.textContent = '🛰 卫星';
   btn.disabled = true;
-  // 等插件加载完才启用按钮
+  // 等插件加载完才启用按钮（10秒超时兜底）
   const checkLoaded = setInterval(function() {
-    if (_satLayer) { btn.disabled = false; clearInterval(checkLoaded); }
+    if (_satLayer) { btn.disabled = false; clearInterval(checkLoaded); clearTimeout(loadTimeout); }
   }, 100);
+  const loadTimeout = setTimeout(function() {
+    clearInterval(checkLoaded);
+    btn.disabled = false;
+    btn.textContent = '❌ 卫星加载失败';
+  }, 10000);
   btn.onclick = function() {
     if (!_satLayer) { console.warn('卫星图层尚未加载'); return; }
     const goSat = this.textContent === '🛰 卫星';
@@ -138,7 +145,6 @@ function addLayerToggle(map) {
 }
 
 // 围栏地图搜索框
-let fencePlaceSearch = null;
 function addFenceSearch() {
   const container = document.getElementById('fenceMapContainer');
   if (!container || container.dataset.searchAdded) return;
@@ -152,27 +158,281 @@ function addFenceSearch() {
     <button id="fenceSearchBtn" style="padding:8px 16px">🔍 搜索</button>
   `;
   parent.insertBefore(searchRow, container);
-  // 地点搜索
-  AMap.plugin(['AMap.PlaceSearch'], function() {
-    fencePlaceSearch = new AMap.PlaceSearch({ type: 'poi', pageSize: 10, pageIndex: 1 });
-  });
-  document.getElementById('fenceSearchBtn').onclick = function() {
-    const kw = document.getElementById('fenceSearchInput').value.trim();
-    if (!kw) return;
-    fencePlaceSearch.search(kw, function(status, result) {
-      if (status === 'complete' && result.poiList && result.poiList.pois.length > 0) {
-        const poi = result.poiList.pois[0];
-        fenceMap.setCenter([poi.location.lng, poi.location.lat]);
-        fenceMap.setZoom(16);
-        new AMap.Marker({ position: [poi.location.lng, poi.location.lat], map: fenceMap, title: poi.name });
-      }
-    });
-  };
-  document.getElementById('fenceSearchInput').onkeydown = function(e) {
-    if (e.key === 'Enter') document.getElementById('fenceSearchBtn').click();
-  };
-}
 
+  function initFenceSearch() {
+    const input = document.getElementById('fenceSearchInput');
+    const btn = document.getElementById('fenceSearchBtn');
+    if (!input || !btn) return;
+
+    // 搜索框聚焦时禁用地图滚轮缩放
+    input.addEventListener('focus', function() {
+      if (fenceMap) fenceMap.setStatus({ scrollWheel: false });
+    });
+    input.addEventListener('blur', function() {
+      setTimeout(function() {
+        if (fenceMap) fenceMap.setStatus({ scrollWheel: true });
+      }, 300);
+    });
+
+    // 自定义下拉容器（定位在input父元素下，不在地图区域内）
+    let suggestBox = null;
+    let searchMarkers = []; // 建议列表对应的所有地图标记
+
+    function clearSearchMarkers() {
+      searchMarkers.forEach(function(m) { fenceMap?.remove(m); });
+      searchMarkers = [];
+    }
+
+    // 在地图上标记一个位置
+    function placeSearchMarker(lng, lat, title, isMain) {
+      const marker = new AMap.Marker({
+        position: [lng, lat],
+        map: fenceMap,
+        title: title,
+        label: isMain ? { content: title, offset: new AMap.Pixel(0, -8) } : undefined
+      });
+      if (isMain) {
+        if (fenceSearchMarker) fenceMap.remove(fenceSearchMarker);
+        fenceSearchMarker = marker;
+      } else {
+        searchMarkers.push(marker);
+      }
+    }
+
+    AMap.plugin(['AMap.PlaceSearch', 'AMap.AutoComplete'], function() {
+      fencePlaceSearch = new AMap.PlaceSearch({ type: 'poi', pageSize: 20, pageIndex: 1 });
+      fenceAuto = new AMap.AutoComplete({ datatype: 'all', pageSize: 15 });
+
+      // 自定义建议下拉（防抖+AutoComplete search）
+      let debounceTimer = null;
+      input.oninput = function() {
+        clearTimeout(debounceTimer);
+        const kw = input.value.trim();
+        if (kw.length < 2) { hideSuggest(); return; }
+        debounceTimer = setTimeout(function() {
+          doAutoSearch(kw);
+        }, 400);
+      };
+
+      // 聚焦时也触发建议（文字未变时重新显示）
+      input.addEventListener('focus', function() {
+        const kw = input.value.trim();
+        if (kw.length >= 2) {
+          doAutoSearch(kw);
+        }
+      });
+
+      function doAutoSearch(kw) {
+        // 先清除旧结果再查新的，防止快速输入时多个回调打架
+        clearSearchMarkers();
+        if (fenceSearchMarker) { fenceMap.remove(fenceSearchMarker); fenceSearchMarker = null; }
+        hideSuggest();
+        fenceAuto.search(kw, function(status, result) {
+          if (status === 'complete' && result.tips && result.tips.length > 0) {
+            // 去重+过滤无坐标项
+            var seen = {}, filtered = [];
+            result.tips.forEach(function(t) {
+              if (!t.location || typeof t.location.lng !== 'number') return;
+              var key = t.name;
+              if (seen[key]) {
+                if (t.district && !seen[key].district) {
+                  var idx = seen[key]._idx;
+                  filtered[idx] = t;
+                  seen[key] = t;
+                }
+                return;
+              }
+              t._idx = filtered.length;
+              seen[key] = t;
+              filtered.push(t);
+            });
+            if (filtered.length > 0) {
+              showSuggest(filtered, kw);
+            } else {
+              hideSuggest();
+            }
+          } else {
+            hideSuggest();
+          }
+        });
+      }
+
+      // 选择建议项
+      function onTipClick(tip) {
+        clearSearchMarkers();
+        if (tip.location) {
+          fenceMap.setCenter([tip.location.lng, tip.location.lat]);
+          fenceMap.setZoom(16);
+          placeSearchMarker(tip.location.lng, tip.location.lat, tip.name, true);
+        }
+        input.value = tip.name;
+        hideSuggest();
+        input.blur(); // 失焦恢复地图滚轮
+      }
+
+      function showSuggest(tips, query) {
+        if (!suggestBox) {
+          suggestBox = document.createElement('div');
+          suggestBox.style.cssText = 'position:fixed;z-index:99999;background:#fff;border:1px solid #d9d9d9;border-radius:8px;max-height:300px;overflow-y:auto;box-shadow:0 6px 20px rgba(0,0,0,0.15);display:none;min-width:320px';
+          document.body.appendChild(suggestBox);
+        }
+        // 定位在input正下方
+        const rect = input.getBoundingClientRect();
+        suggestBox.style.left = rect.left + 'px';
+        suggestBox.style.top = (rect.bottom + 4) + 'px';
+        suggestBox.style.width = Math.max(rect.width, 320) + 'px';
+
+        // 标记所有候选到地图上
+        clearSearchMarkers();
+        if (fenceSearchMarker) { fenceMap.remove(fenceSearchMarker); fenceSearchMarker = null; }
+        var count = 0;
+        tips.forEach(function(t) {
+          if (t.location) {
+            placeSearchMarker(t.location.lng, t.location.lat, t.name, false);
+            count++;
+          }
+        });
+        // 如果只有一个有坐标，也自动标记为主标记并缩放
+        if (count === 1) {
+          const only = tips.find(function(t){ return t.location; });
+          if (only) {
+            fenceMap.setCenter([only.location.lng, only.location.lat]);
+            fenceMap.setZoom(16);
+            clearSearchMarkers();
+            placeSearchMarker(only.location.lng, only.location.lat, only.name, true);
+          }
+        } else if (count > 1) {
+          // 多个位置时自动调整视野（限制最小缩放级别防止卡死）
+          var bounds = new AMap.Bounds();
+          tips.forEach(function(t) {
+            if (t.location) bounds.extend([t.location.lng, t.location.lat]);
+          });
+          fenceMap.setBounds(bounds);
+          // 防止视野缩放过近导致地图卡顿
+          setTimeout(function() {
+            if (fenceMap && fenceMap.getZoom() > 18) fenceMap.setZoom(16);
+          }, 200);
+        }
+
+        // 建议列表 + 查看更多按钮
+        suggestBox.setAttribute('data-mode', 'auto');
+        suggestBox.setAttribute('data-query', query || '');
+        suggestBox.innerHTML = tips.map(function(t, i) {
+          const addr = t.district || '';
+          return '<div data-idx="'+i+'" style="padding:10px 14px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:14px;display:flex;align-items:flex-start;gap:8px">' +
+            '<span style="color:#999;font-size:11px;line-height:20px;width:20px;text-align:right">'+(i+1)+'.</span>' +
+            '<div style="flex:1"><div style="font-weight:500;color:#333">'+esc(t.name)+'</div>' +
+            (addr ? '<div style="color:#999;font-size:11px;margin-top:2px">'+esc(addr)+'</div>' : '') +
+            '</div></div>';
+        }).join('') +
+        '<div class="more-search" style="padding:12px 14px;text-align:center;cursor:pointer;color:#1677ff;font-size:13px;border-top:1px solid #e8e8e8;font-weight:500">' +
+        '🔍 查看更多搜索结果</div>';
+        suggestBox.style.display = 'block';
+
+        // 点击选择建议项或查看更多
+        suggestBox.onclick = function(e) {
+          e.stopPropagation();
+          const item = e.target.closest('[data-idx]');
+          if (item) {
+            const idx = parseInt(item.dataset.idx);
+            if (tips[idx]) onTipClick(tips[idx]);
+            return;
+          }
+          // "查看更多" → 全量PlaceSearch，替换列表
+          if (e.target.closest('.more-search')) {
+            const q = query || input.value;
+            fencePlaceSearch.search(q, function(status, result) {
+              if (status === 'complete' && result.poiList && result.poiList.pois.length > 0) {
+                const pois = result.poiList.pois;
+                // 把所有POI标记到地图
+                clearSearchMarkers();
+                if (fenceSearchMarker) { fenceMap.remove(fenceSearchMarker); fenceSearchMarker = null; }
+                var bounds2 = new AMap.Bounds();
+                pois.forEach(function(p) {
+                  const ll = p.location;
+                  placeSearchMarker(ll.lng, ll.lat, p.name, false);
+                  bounds2.extend([ll.lng, ll.lat]);
+                });
+                fenceMap.setBounds(bounds2);
+
+                // 替换下拉内容为POI全量列表
+                suggestBox.setAttribute('data-mode', 'full');
+                suggestBox.innerHTML = pois.map(function(p, i) {
+                  const addr2 = p.pname + (p.cityname ? '·'+p.cityname : '');
+                  return '<div data-idx="'+i+'" style="padding:10px 14px;border-bottom:1px solid #f0f0f0;cursor:pointer;font-size:14px;display:flex;align-items:flex-start;gap:8px">' +
+                    '<span style="color:#999;font-size:11px;line-height:20px;width:20px;text-align:right">'+(i+1)+'.</span>' +
+                    '<div style="flex:1"><div style="font-weight:500;color:#333">'+esc(p.name)+'</div>' +
+                    (addr2 ? '<div style="color:#999;font-size:11px;margin-top:2px">'+esc(addr2)+'</div>' : '') +
+                    '</div></div>';
+                }).join('') +
+                '<div class="back-suggest" style="padding:12px 14px;text-align:center;cursor:pointer;color:#999;font-size:13px;border-top:1px solid #e8e8e8">' +
+                '⬆ 返回建议</div>';
+                suggestBox.style.display = 'block';
+                // 更新点击处理—现在tips是pois
+                tips = pois;
+              } else {
+                hideSuggest();
+                btn.click(); // 回退到地理编码
+              }
+            });
+          }
+        };
+      }
+
+      // 点击外部关闭建议列表（只绑一次，用document.getElementById动态查找当前DOM）
+      if (!_fenceDocListenersBound) {
+        document.addEventListener('click', function(e) {
+          const sb = document.querySelector('[data-mode]');
+          const inp = document.getElementById('fenceSearchInput');
+          if (sb && sb.style.display !== 'none' && !sb.contains(e.target) && e.target !== inp) {
+            sb.style.display = 'none';
+          }
+        }, true);
+        _fenceDocListenersBound = true;
+      }
+
+      function hideSuggest() {
+        if (suggestBox) suggestBox.style.display = 'none';
+      }
+
+      input.onkeydown = function(e) {
+        if (e.key === 'Escape') hideSuggest();
+        if (e.key === 'Enter') btn.click();
+      };
+
+      // 搜索按钮
+      btn.onclick = function() {
+        hideSuggest();
+        const kw = input.value.trim();
+        if (!kw) return;
+        if (!fencePlaceSearch) return;
+        fencePlaceSearch.search(kw, function(status, result) {
+          if (status === 'complete' && result.poiList && result.poiList.pois.length > 0) {
+            const poi = result.poiList.pois[0];
+            fenceMap.setCenter([poi.location.lng, poi.location.lat]);
+            fenceMap.setZoom(16);
+            if (fenceSearchMarker) fenceMap.remove(fenceSearchMarker);
+            fenceSearchMarker = new AMap.Marker({ position: [poi.location.lng, poi.location.lat], map: fenceMap, title: poi.name });
+            input.value = poi.name;
+          } else {
+            api('GET', '/api/v1/geocode/search?address=' + encodeURIComponent(kw)).then(function(g) {
+              if (g && g.results && g.results.length > 0) {
+                const loc = g.results[0];
+                fenceMap.setCenter([loc.lng, loc.lat]);
+                fenceMap.setZoom(16);
+                if (fenceSearchMarker) fenceMap.remove(fenceSearchMarker);
+                fenceSearchMarker = new AMap.Marker({ position: [loc.lng, loc.lat], map: fenceMap, title: kw });
+              } else { alert('未找到: ' + kw); }
+            }).catch(function() { alert('搜索失败'); });
+          }
+        });
+      };
+    });
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  }
+  initFenceSearch();
+}
 // ====================================================================
 //  🚧 围栏管理
 // ====================================================================
@@ -217,7 +477,7 @@ async function loadFences() {
             <h4 style="margin-bottom:8px">围栏列表 (${fenceList.length})</h4>
             ${fenceList.length === 0 ? '<p style="color:#999;text-align:center">暂无围栏</p>' :
               fenceList.map(f => `<div style="border:1px solid #f0f0f0;border-radius:8px;padding:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-                <div style="flex:1"><strong>${f.name}</strong>
+                <div style="flex:1"><strong>${f.name||'--'}</strong>
                   <span class="tag ${f.shapeType==='polygon'?'tag-green':'tag-blue'}" style="margin-left:8px">${f.shapeType==='polygon'?'多边形':'圆形'}</span>
                   <div style="font-size:12px;color:#666;margin-top:4px">${f.shapeType==='circle'?`⚪ (${f.centerLat?.toFixed(4)},${f.centerLng?.toFixed(4)}) ${f.radiusMeters}m`:`🔷 ${(f.coordinates||[]).length}个折点`}</div>
                 </div>
@@ -347,6 +607,7 @@ function clearAllDrawings() {
   if (fenceCircle) { fenceMap?.remove(fenceCircle); fenceCircle=null; }
   if (fencePolyline) { fenceMap?.remove(fencePolyline); fencePolyline=null; }
   if (fencePolygon) { fenceMap?.remove(fencePolygon); fencePolygon=null; }
+  if (fenceSearchMarker) { fenceMap?.remove(fenceSearchMarker); fenceSearchMarker=null; }
 }
 async function saveFence() {
   const name = document.getElementById('fenceNameCreate').value;
@@ -370,6 +631,7 @@ async function saveFence() {
     // 只刷新围栏列表，然后重建地图
     await loadFences();
     initFenceMap();
+    addFenceSearch();
     // 保存后自动显示刚创建的围栏
     if (saved.mode === 'circle' && saved.lat != null) {
       placeCircleCenter(saved.lat, saved.lng);
@@ -405,7 +667,7 @@ async function viewFence(id) {
     }
   } catch(e) { alert('失败: '+e.message); }
 }
-async function deleteFence(id) { if (!confirm('确定删除？')) return; try { await api('DELETE', `/api/v1/fences/${id}`); await loadFences(); initFenceMap(); } catch(e) { alert('失败: '+e.message); } }
+async function deleteFence(id) { if (!confirm('确定删除？')) return; try { await api('DELETE', `/api/v1/fences/${id}`); await loadFences(); initFenceMap(); addFenceSearch(); } catch(e) { alert('失败: '+e.message); } }
 
 // ==================== 围栏编辑 ====================
 window.editFence = async function(id) {
@@ -441,8 +703,12 @@ window.editFence = async function(id) {
         fenceMap.setCenter([lngAvg, latAvg]); fenceMap.setZoom(15);
       }
     }
-    const saveEl = document.querySelector('#fenceResult');
-    if (saveEl) saveEl.innerHTML = '<button onclick="saveFenceEdit('+id+')">💾 更新围栏</button>';
+    // 把主保存按钮改为更新模式（不另加小按钮，防止用户误点创建）
+    const mainBtn = document.querySelector('#fenceForm button[onclick*="saveFence"]');
+    if (mainBtn) {
+      mainBtn.textContent = '💾 更新';
+      mainBtn.onclick = function() { saveFenceEdit(id); };
+    }
   } catch(e) { alert('加载失败: '+e.message); }
 };
 async function saveFenceEdit(id) {
@@ -457,9 +723,11 @@ async function saveFenceEdit(id) {
     if (polygonPoints.length < 3) { document.getElementById('fenceResult').innerHTML = '❌ 至少3个折点'; return; }
     data.coordinates = polygonPoints;
   }
-  try { await api('PUT', `/api/v1/fences/${id}`, data); document.getElementById('fenceResult').innerHTML = '✅ 更新成功'; setTimeout(() => { loadFences(); setTimeout(initFenceMap, 300); }, 500); }
+  try { await api('PUT', `/api/v1/fences/${id}`, data); clearAllDrawings(); polygonPoints=[]; document.getElementById('fenceResult').innerHTML = '✅ 更新成功'; await loadFences(); initFenceMap(); addFenceSearch(); }
   catch(e) { document.getElementById('fenceResult').innerHTML = `❌ ${e.message}`; }
 }
+
+// 恢复主保存按钮为默认创建模式（在loadFences模板中重建时自动恢复）
 
 // ==================== 实时监控 - 高德版 ====================
 function connectMonitorWS() {
@@ -612,12 +880,14 @@ function _updateTrackMarker(map, idx) {
   const pts = map._trackPoints;
   if (!pts || !pts[idx]) return;
   const p = pts[idx];
-  if (map._trackMarker) map.remove(map._trackMarker);
   const color = (p.speed||0) > 0 ? '#52c41a' : '#1677ff';
-  map._trackMarker = new AMap.Marker({
-    position: [p.lng, p.lat], map,
-    content: `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`
-  });
+  const content = `<div style="background:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>`;
+  if (map._trackMarker) {
+    map._trackMarker.setPosition([p.lng, p.lat]);
+    map._trackMarker.setContent(content);
+  } else {
+    map._trackMarker = new AMap.Marker({ position: [p.lng, p.lat], map, content: content });
+  }
 }
 
 async function monitorSearchTrack() {
@@ -673,6 +943,8 @@ function monitorClearTrack() {
   map._trackMarkers = [];
   if (map._trackMarker) { map.remove(map._trackMarker); map._trackMarker = null; }
   map._trackPoints = [];
+  // 恢复视野到所有实时人员
+  if (monitorMks.length > 0) map.setFitView(monitorMks);
   const wrap = document.getElementById('trackReplayWrap');
   if (wrap) wrap.style.display = 'none';
   document.getElementById('trackInfo').style.display = 'none';
@@ -708,7 +980,7 @@ function monitorSetSpeed(speed) {
   const map = window._monitorMap;
   if (!map) return;
   map._trackSpeed = speed;
-  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === speed));
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseFloat(b.textContent) === speed));
   if (map._trackPlaying) {
     if (map._trackAnim) clearInterval(map._trackAnim);
     map._trackAnim = setInterval(() => _monitorAnimMove(map), Math.max(50, 200 / speed));
@@ -802,7 +1074,7 @@ async function loadPhotos() {
         ${photos.length===0?'<p style="color:#999;grid-column:1/-1;text-align:center">暂无照片</p>':
           photos.map(p => {
             const url = p.url || p.path || '';
-            const time = p.createdAt || '';
+            const time = p.time || p.createdAt || '';
             return `<div style="position:relative">
               <img src="${url}" onerror="this.style.display='none'" />
               <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.5);color:white;padding:6px;font-size:11px">${time}</div>
@@ -820,7 +1092,7 @@ async function loadUsers() {
       <h4>添加人员</h4>
       <div class="form-row"><label>姓名</label><input type="text" id="userName" /></div>
       <div class="form-row"><label>手机</label><input type="text" id="userPhone" placeholder="必填" /></div>
-      <div class="form-row"><label>密码</label><input type="text" id="userPwd" value="test123456" /></div>
+      <div class="form-row"><label>密码</label><input type="text" id="userPwd" value="123456" /></div>
       <div class="form-row"><label>角色</label>
         <select id="userRole"><option value="employee">员工</option><option value="manager">经理</option><option value="admin">管理员</option></select></div>
       <button onclick="addUser()">➕ 添加</button><span id="userResult" style="margin-left:12px"></span>
@@ -848,7 +1120,7 @@ window.addUser = async function() {
   if (!validPrefixes.test(phone)) { resultEl.innerHTML = '❌ 手机号号段无效（如13x/15x/18x等）'; return; }
   try {
     await api('POST', '/api/v1/auth/register', {
-      phone, password: document.getElementById('userPwd').value || 'test123456',
+      phone, password: document.getElementById('userPwd').value || '123456',
       name: document.getElementById('userName').value,
       role: document.getElementById('userRole').value,
     });
@@ -868,10 +1140,10 @@ window.editRule = async function(id) {
   if (!r) return;
   const name = prompt('规则名称:', r.name);
   if (!name) return;
-  const start = prompt('上班时间:', r.startTime);
-  const end = prompt('下班时间:', r.endTime);
+  const start = prompt('上班时间:', r.checkin_start);
+  const end = prompt('下班时间:', r.checkin_end);
   try {
-    await api('PUT', `/api/v1/attendance/rules/${id}`, { name, startTime: start, endTime: end, radius: r.radius, wifiName: r.wifiName });
+    await api('PUT', `/api/v1/attendance/rules/${id}`, { name, checkin_start: start, checkin_end: end, radius_meters: r.radius_meters, wifi_ssid: r.wifi_ssid, center_lat: r.center_lat, center_lng: r.center_lng });
     loadRules();
   } catch(e) { alert('编辑失败: '+e.message); }
 };
@@ -904,7 +1176,7 @@ async function loadDashboard() {
         <div class="stat-card purple"><div class="stat-num">${rules.rules?.length || 0}</div><div>打卡规则</div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div class="card" style="padding:16px"><h4>最近打卡</h4><table class="data-table"><tr><th>用户</th><th>时间</th></tr>${(att.records||[]).slice(0,5).map(r=>`<tr><td>${r.userName||'?'}</td><td>${new Date(r.createdAt).toLocaleString()}</td></tr>`).join('')}</table></div>
+        <div class="card" style="padding:16px"><h4>最近打卡</h4><table class="data-table"><tr><th>用户</th><th>时间</th></tr>${(att.records||[]).slice(0,5).map(r=>`<tr><td>${r.user_id||'?'}</td><td>${r.check_time?new Date(r.check_time).toLocaleString():'--'}</td></tr>`).join('')}</table></div>
         <div class="card" style="padding:16px"><h4>在线人员</h4><table class="data-table"><tr><th>用户</th><th>部门</th></tr>${(loc.locations||[]).slice(0,5).map(l=>`<tr><td>${l.name||l.userId}</td><td>${l.department||'--'}</td></tr>`).join('')}</table></div>
       </div>`;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
@@ -1054,7 +1326,7 @@ function seekTrack(idx) {
 }
 function setTrackSpeed(speed) {
   trackSpeed = speed;
-  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseInt(b.textContent) === speed));
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseFloat(b.textContent) === speed));
   if (trackPlaying) { if(trackAnim)clearInterval(trackAnim); trackAnim=setInterval(trackAnimMove, Math.max(50, 200 / trackSpeed)); }
 }
 function toggleTrackTable() { const w=document.getElementById('trackTableWrap'); w.style.display=w.style.display==='none'?'block':'none'; }
@@ -1067,16 +1339,16 @@ async function loadRules() {
   try {
     const data = await api('GET', '/api/v1/attendance/rules');
     const rules = data.rules || [];
-    el.innerHTML = `<h2>打卡规则</h2><div class="card" style="padding:20px;margin:12px 0"><h4>新增</h4><div class="form-row"><label>名称</label><input type="text" id="ruleName" value="默认" /></div><div class="form-row"><label>上班</label><input type="time" id="ruleStart" value="09:00" /></div><div class="form-row"><label>下班</label><input type="time" id="ruleEnd" value="18:00" /></div><div class="form-row"><label>范围(m)</label><input type="number" id="ruleRadius" value="300" /></div><div class="form-row"><label>WiFi</label><input type="text" id="ruleWifi" placeholder="可选" /></div><button onclick="saveRule()">💾 保存</button><span id="ruleResult" style="margin-left:12px"></span></div>
+    el.innerHTML = `<h2>打卡规则</h2><div class="card" style="padding:20px;margin:12px 0"><h4>新增</h4><div class="form-row"><label>名称</label><input type="text" id="ruleName" value="默认" /></div><div class="form-row"><label>上班</label><input type="time" id="ruleStart" value="09:00" /></div><div class="form-row"><label>下班</label><input type="time" id="ruleEnd" value="18:00" /></div><div class="form-row"><label>范围(m)</label><input type="number" id="ruleRadius" value="300" /></div><div class="form-row"><label>纬度</label><input type="text" id="ruleLat" placeholder="34.6137" /></div><div class="form-row"><label>经度</label><input type="text" id="ruleLng" placeholder="113.9016" /></div><div class="form-row"><label>WiFi</label><input type="text" id="ruleWifi" placeholder="可选" /></div><button onclick="saveRule()">💾 保存</button><span id="ruleResult" style="margin-left:12px"></span></div>
       <table class="data-table"><tr><th>ID</th><th>名称</th><th>上班</th><th>下班</th><th>范围</th><th>操作</th></tr>${
         rules.length===0?'<tr><td colspan="6" style="text-align:center;color:#999">暂无</td></tr>':
-        rules.map(r=>`<tr><td>${r.id}</td><td>${r.name}</td><td>${r.startTime}</td><td>${r.endTime}</td><td>${r.radius}m</td>
+        rules.map(r=>`<tr><td>${r.id}</td><td>${r.name}</td><td>${r.checkin_start}</td><td>${r.checkin_end}</td><td>${r.radius_meters}m</td>
           <td><button onclick="editRule(${r.id})" style="padding:4px 8px;font-size:12px;margin-right:4px">✏️</button>
           <button onclick="deleteRule(${r.id})" class="danger" style="padding:4px 8px;font-size:12px">🗑️</button></td></tr>`).join('')}</table>`;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
 }
 async function saveRule() {
-  try { await api('POST','/api/v1/attendance/rules',{name:document.getElementById('ruleName').value,startTime:document.getElementById('ruleStart').value,endTime:document.getElementById('ruleEnd').value,radius:parseInt(document.getElementById('ruleRadius').value),wifiName:document.getElementById('ruleWifi').value});
+  try { const lat=parseFloat(document.getElementById('ruleLat').value); const lng=parseFloat(document.getElementById('ruleLng').value); await api('POST','/api/v1/attendance/rules',{name:document.getElementById('ruleName').value,checkin_start:document.getElementById('ruleStart').value,checkin_end:document.getElementById('ruleEnd').value,radius_meters:parseInt(document.getElementById('ruleRadius').value),center_lat: isNaN(lat)?undefined:lat,center_lng: isNaN(lng)?undefined:lng,wifi_ssid:document.getElementById('ruleWifi').value});
   document.getElementById('ruleResult').innerHTML='✅ 成功'; loadRules(); } catch(e) { document.getElementById('ruleResult').innerHTML=`❌ ${e.message}`; }
 }
 
@@ -1090,14 +1362,14 @@ async function loadReports() {
     const records = att.records || []; const total = records.length; const ci = records.filter(r => r.type === 'checkin').length; const co = records.filter(r => r.type === 'checkout').length;
     el.innerHTML = `<h2>统计报表</h2><div class="stats-grid"><div class="stat-card green"><div class="stat-num">${total}</div><div>总打卡</div></div><div class="stat-card blue"><div class="stat-num">${ci}</div><div>签到</div></div><div class="stat-card orange"><div class="stat-num">${co}</div><div>签退</div></div><div class="stat-card purple"><div class="stat-num">${total>0?(ci/total*100).toFixed(0):0}%</div><div>签到率</div></div></div>
       <div style="margin:12px 0"><button onclick="exportExcel()">📥 导出CSV</button><span style="margin-left:12px;color:#999">${total}条</span></div>
-      <table class="data-table"><tr><th>用户</th><th>类型</th><th>时间</th><th>地址</th></tr>${records.slice(0,100).map(r=>`<tr><td>${r.userName||r.userId}</td><td>${r.type==='checkin'?'签到':'签退'}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.address||'--'}</td></tr>`).join('')}</table>`;
+      <table class="data-table"><tr><th>用户</th><th>类型</th><th>时间</th><th>地址</th></tr>${records.slice(0,100).map(r=>`<tr><td>${r.user_id||r.userId||'--'}</td><td>${r.type==='checkin'?'签到':'签退'}</td><td>${r.check_time?new Date(r.check_time).toLocaleString():'--'}</td><td>${r.address||'--'}</td></tr>`).join('')}</table>`;
     window._attRecords = records;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
 }
 function exportExcel() {
   const records = window._attRecords || [];
   let csv = '\ufeff用户,类型,时间,地址\n';
-  records.forEach(r => csv+=`"${r.userName||''}","${r.type==='checkin'?'签到':'签退'}","${r.createdAt}","${r.address||''}"\n`);
+  records.forEach(r => csv+=`"${r.user_id||''}","${r.type==='checkin'?'签到':'签退'}","${r.check_time||''}","${r.address||''}"\n`);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `考勤_${new Date().toISOString().split('T')[0]}.csv`; a.click();
   URL.revokeObjectURL(a.href);
@@ -1111,19 +1383,20 @@ async function loadOrg() {
   try {
     const data = await api('GET', '/api/v1/org/departments');
     const depts = data || [];
-    el.innerHTML = `<h2>组织架构</h2><div class="card" style="padding:20px;margin:12px 0"><h4>新增部门</h4><div class="form-row"><label>名称</label><input type="text" id="deptName" placeholder="如：销售部" /></div><div class="form-row"><label>负责人</label><input type="text" id="deptManager" placeholder="姓名" /></div><button onclick="addDept()">➕ 添加</button><span id="deptResult" style="margin-left:12px"></span></div>
-      <table class="data-table"><tr><th>ID</th><th>名称</th><th>负责人</th><th>创建时间</th><th>操作</th></tr>${depts.length===0?'<tr><td colspan="5" style="text-align:center;color:#999">暂无</td></tr>':depts.map(d=>`<tr><td>${d.id}</td><td>${'  '.repeat(d.parentId?1:0)}${d.name}</td><td>${d.manager||'--'}</td><td>${new Date(d.createdAt).toLocaleDateString()}</td><td><button onclick="deleteDept(${d.id})" style="background:#ff4d4f;padding:4px 8px;font-size:12px">删除</button></td></tr>`).join('')}</table>`;
+    el.innerHTML = `<h2>组织架构</h2><div class="card" style="padding:20px;margin:12px 0"><h4>新增部门</h4><div class="form-row"><label>名称</label><input type="text" id="deptName" placeholder="如：销售部" /></div><div class="form-row"><label>描述</label><input type="text" id="deptDesc" placeholder="可选" /></div><button onclick="addDept()">➕ 添加</button><span id="deptResult" style="margin-left:12px"></span></div>
+      <table class="data-table"><tr><th>名称</th><th>描述</th><th>创建时间</th><th>操作</th></tr>${depts.length===0?'<tr><td colspan="4" style="text-align:center;color:#999">暂无</td></tr>':depts.map(d=>`<tr><td>${'  '.repeat(d.parentId?1:0)}${d.name}</td><td>${d.description||'--'}</td><td>${new Date(d.createdAt).toLocaleDateString()}</td><td><button onclick="deleteDept('${d.id}')" style="background:#ff4d4f;padding:4px 8px;font-size:12px">删除</button></td></tr>`).join('')}</table>`;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
 }
 async function addDept() {
   const name = document.getElementById('deptName').value;
   if (!name) { document.getElementById('deptResult').innerHTML = '❌ 名称不能为空'; return; }
-  try { await api('POST','/api/v1/org/departments',{name,manager:document.getElementById('deptManager').value}); document.getElementById('deptResult').innerHTML='✅ 添加成功'; document.getElementById('deptName').value=''; loadOrg(); } catch(e) { document.getElementById('deptResult').innerHTML=`❌ ${e.message}`; }
+  try { await api('POST','/api/v1/org/departments',{name:document.getElementById('deptName').value,description:document.getElementById('deptDesc').value}); document.getElementById('deptResult').innerHTML='✅ 添加成功'; document.getElementById('deptName').value=''; loadOrg(); } catch(e) { document.getElementById('deptResult').innerHTML=`❌ ${e.message}`; }
 }
 async function deleteDept(id) { if (!confirm('确定删除？')) return; try { await api('DELETE',`/api/v1/org/departments/${id}`); loadOrg(); } catch(e) { alert('删除失败: '+e.message); } }
 
 // URL hash变化时切换标签页（支持浏览器前进/后退）
-window.addEventListener('hashchange', () => {
+// URL变化时切换标签页（支持浏览器前进/后退）
+window.addEventListener('popstate', () => {
   const tab = window.location.hash.replace('#', '') || 'dashboard';
   if (_validTabs.includes(tab)) showTab(tab);
 });

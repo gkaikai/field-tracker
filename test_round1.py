@@ -33,7 +33,7 @@ def banner(title):
 
 # 登录
 TOKEN = ""
-r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"test123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
+r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
 try:
     TOKEN = json.loads(r.stdout)['token']
 except:

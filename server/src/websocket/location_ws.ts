@@ -11,7 +11,11 @@ import { pgPool, redis } from '../config/database';
 import jwt from 'jsonwebtoken';
 
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || 'field-tracker-secret';
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET 环境变量未设置');
+  }
+  return secret;
 }
 
 interface LocationPayload {
@@ -29,7 +33,30 @@ const connections = new Map<string, WebSocket[]>();
 // 反向查找：WebSocket -> userId
 const wsToUser = new WeakMap<WebSocket, string>();
 
+// admin ID 缓存（避免每次广播都查数据库）
+let adminIdsCache: string[] = [];
+let adminCacheTimer: ReturnType<typeof setInterval> | null = null;
+const ADMIN_CACHE_REFRESH_MS = 60_000; // 每60秒刷新一次
+
+/** 刷新 admin ID 缓存 */
+async function refreshAdminCache() {
+  try {
+    const result = await pgPool.query(
+      `SELECT id FROM users WHERE role = 'admin' AND is_active = true`
+    );
+    adminIdsCache = result.rows.map(r => r.id as string);
+  } catch (err) {
+    // 刷新失败时保留旧缓存
+    console.error('刷新 admin 缓存失败:', (err as Error).message);
+  }
+}
+
 export function setupLocationWS(wss: WebSocketServer) {
+  // 设置定时刷新 admin 缓存（首次刷新延迟到数据库连接确认后进行）
+  if (adminCacheTimer === null) {
+    adminCacheTimer = setInterval(refreshAdminCache, ADMIN_CACHE_REFRESH_MS);
+  }
+
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     // 从 URL 参数获取 Token
     const url = new URL(req.url || '', 'http://localhost');
@@ -73,17 +100,22 @@ export function setupLocationWS(wss: WebSocketServer) {
         }
 
         // 1. 写入 Redis 实时位置
-        await redis.geoadd('realtime:locations', payload.lng, payload.lat, userId);
-        await redis.expire('realtime:locations', 300);
-        await redis.hset(`user:${userId}:last`, {
-          lng: payload.lng,
-          lat: payload.lat,
-          accuracy: payload.accuracy || 0,
-          speed: payload.speed || 0,
-          battery: payload.battery || 0,
-          timestamp: payload.timestamp,
-        });
-        await redis.expire(`user:${userId}:last`, 300);
+        try {
+          await redis.geoadd('realtime:locations', payload.lng, payload.lat, userId);
+          // 不设置全局 realtime:locations 的 TTL（避免所有用户位置同时过期）
+          // 改为单独设置用户位置 TTL，每个用户独立过期
+          await redis.hset(`user:${userId}:last`, {
+            lng: payload.lng,
+            lat: payload.lat,
+            accuracy: payload.accuracy || 0,
+            speed: payload.speed || 0,
+            battery: payload.battery || 0,
+            timestamp: payload.timestamp,
+          });
+          await redis.expire(`user:${userId}:last`, 300);
+        } catch (redisErr) {
+          console.error('Redis写入失败（降级运行）:', (redisErr as Error).message);
+        }
 
         // 2. 写入 PostgreSQL（异步）
         pgPool.query(
@@ -130,13 +162,8 @@ export function setupLocationWS(wss: WebSocketServer) {
 /// 广播位置给管理员
 async function broadcastToManagers(userId: string, payload: LocationPayload) {
   try {
-    // 查询该用户所属部门的管理员（简化版：所有 admin 角色）
-    const result = await pgPool.query(
-      `SELECT id FROM users WHERE role = 'admin' AND is_active = true`
-    );
-
-    for (const row of result.rows) {
-      const adminId = row.id as string;
+    // 使用缓存的 admin ID 列表（每60秒刷新一次），避免每次广播都查数据库
+    for (const adminId of adminIdsCache) {
       const adminConns = connections.get(adminId);
       if (adminConns) {
         const msg = JSON.stringify({
@@ -164,3 +191,14 @@ async function broadcastToManagers(userId: string, payload: LocationPayload) {
 export function getOnlineCount(): number {
   return connections.size;
 }
+
+/** 停止 admin 缓存刷新（优雅关闭时调用） */
+export function stopAdminCacheRefresh(): void {
+  if (adminCacheTimer !== null) {
+    clearInterval(adminCacheTimer);
+    adminCacheTimer = null;
+  }
+}
+
+/** 强制立即刷新 admin 缓存（数据库连接确认后调用） */
+export const forceRefreshAdminCache = refreshAdminCache;

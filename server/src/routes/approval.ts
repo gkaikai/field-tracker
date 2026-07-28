@@ -1,36 +1,12 @@
-// 审批流程 - 请假/出差
-
-import { Router, Request, Response } from 'express';
-import { body, query } from 'express-validator';
+// 审批流程 - 请假/出差/报销
+import { Router, Request, Response, NextFunction } from 'express';
+import { body, param, query } from 'express-validator';
 import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { pgPool } from '../config/database';
 
 const router = Router();
 router.use(authMiddleware);
-
-// 内存存储
-interface Approval {
-  id: number;
-  userId: string;
-  userName: string;
-  type: 'leave' | 'business_trip' | 'expense';
-  status: 'pending' | 'approved' | 'rejected';
-  title: string;
-  reason: string;
-  startDate: string;
-  endDate: string;
-  duration: string;
-  amount: number | null;       // 报销金额
-  remark: string;              // 备注
-  approverId: string | null;
-  approverName: string | null;
-  rejectReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-const approvals: Approval[] = [];
-let approvalIdSeq = 1;
 
 // POST /api/v1/approvals — 创建审批
 router.post('/',
@@ -44,79 +20,149 @@ router.post('/',
   async (req: Request, res: Response) => {
     const user = (req as any).user as JwtPayload;
     const { type, title, reason, startDate, endDate, duration, amount, remark } = req.body;
-    const approval: Approval = {
-      id: approvalIdSeq++, userId: user.userId, userName: user.phone, type,
-      status: 'pending', title, reason, startDate, endDate, duration: duration || '',
-      amount: amount ? parseFloat(amount) : null, remark: remark || '',
-      approverId: null, approverName: null, rejectReason: null,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    };
-    approvals.push(approval);
-    res.status(201).json(approval);
+    const flowData: any = {};
+    if (amount) flowData.amount = parseFloat(amount);
+    if (remark) flowData.remark = remark;
+
+    const result = await pgPool.query(
+      `INSERT INTO approvals (applicant_id, approval_type, title, reason, status, start_date, end_date, duration_days, reject_reason, approval_flow)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9)
+       RETURNING id, created_at`,
+      [user.userId, type, title, reason, startDate, endDate,
+       duration ? parseFloat(duration) : null, null,
+       Object.keys(flowData).length > 0 ? JSON.stringify(flowData) : null]
+    );
+
+    const r = result.rows[0];
+    res.status(201).json({
+      id: r.id, userId: user.userId, userName: user.phone, type,
+      status: 'pending', title, reason, startDate, endDate,
+      duration: duration || '', amount: amount != null ? parseFloat(amount) : null,
+      remark: remark || '', approverId: null, approverName: null, rejectReason: null,
+      createdAt: r.created_at, updatedAt: r.created_at,
+    });
   },
 );
 
 // GET /api/v1/approvals — 获取审批列表
+// 管理员看到全系统审批，普通用户只能看自己的
 router.get('/', async (req: Request, res: Response) => {
   const user = (req as any).user as JwtPayload;
-  const page = parseInt(req.query.page as string) || 1;
-  const pageSize = parseInt(req.query.pageSize as string) || 20;
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 20));
   const type = req.query.type as string;
   const status = req.query.status as string;
+  const offset = (page - 1) * pageSize;
 
-  let filtered = approvals.filter(a => a.userId === user.userId);
-  if (type) filtered = filtered.filter(a => a.type === type);
-  if (status) filtered = filtered.filter(a => a.status === status);
-  filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  let whereClause: string;
+  const params: any[] = [];
 
-  const total = filtered.length;
-  res.json({ approvals: filtered.slice((page - 1) * pageSize, page * pageSize), pagination: { page, pageSize, total } });
+  if (user.role === 'admin') {
+    // 管理员看到全系统审批，无 applicant_id 过滤
+    whereClause = 'WHERE 1=1';
+  } else {
+    // 普通用户只能看自己提交的审批
+    whereClause = 'WHERE a.applicant_id = $1';
+    params.push(user.userId);
+  }
+
+  if (type) { params.push(type); whereClause += ` AND a.approval_type = $${params.length}`; }
+  if (status) { params.push(status); whereClause += ` AND a.status = $${params.length}`; }
+
+  const countResult = await pgPool.query(
+    `SELECT COUNT(*)::int as total FROM approvals a ${whereClause}`, params
+  );
+  const total = countResult.rows[0].total;
+
+  const dataResult = await pgPool.query(
+    `SELECT a.id, a.applicant_id, a.approval_type, a.status, a.title, a.reason,
+            a.start_date, a.end_date, a.duration_days, a.reject_reason, a.approval_flow,
+            a.approver_id, a.approved_at, a.created_at, a.updated_at,
+            u.name as applicant_name, u.phone as applicant_phone
+     FROM approvals a
+     LEFT JOIN users u ON a.applicant_id = u.id
+     ${whereClause}
+     ORDER BY a.created_at DESC
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, pageSize, offset]
+  );
+
+  const approvals = dataResult.rows.map(r => ({
+    id: r.id,
+    userId: r.applicant_id,
+    userName: r.applicant_name || r.applicant_phone || '未知用户',
+    type: r.approval_type,
+    status: r.status,
+    title: r.title,
+    reason: r.reason,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    duration: r.duration_days ? r.duration_days.toString() : '',
+    amount: r.approval_flow ? (r.approval_flow as any).amount ?? null : null,
+    remark: (r.approval_flow as any)?.remark ?? '',
+    approverId: r.approver_id,
+    rejectReason: r.reject_reason,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+
+  res.json({ approvals, pagination: { page, pageSize, total } });
 });
 
 // PUT /api/v1/approvals/:id/approve — 审批操作（管理员）
 router.put('/:id/approve',
-  validate([body('status').isIn(['approved', 'rejected']), body('rejectReason').optional()]),
+  authMiddleware,
+  roleMiddleware('admin'),
+  validate([param('id').isUUID().withMessage('无效的审批ID'), body('status').isIn(['approved', 'rejected']), body('rejectReason').optional()]),
   async (req: Request, res: Response) => {
-    const idx = approvals.findIndex(a => a.id === parseInt(req.params.id));
-    if (idx === -1) return res.status(404).json({ code: '10014', message: '审批不存在' });
-    approvals[idx].status = req.body.status;
-    approvals[idx].rejectReason = req.body.rejectReason || null;
-    approvals[idx].updatedAt = new Date().toISOString();
-    res.json(approvals[idx]);
+    const admin = (req as any).user as JwtPayload;
+    const { status, rejectReason } = req.body;
+
+    const result = await pgPool.query(
+      `UPDATE approvals SET status=$1, reject_reason=$2, approver_id=$3, approved_at=NOW(), updated_at=NOW()
+       WHERE id=$4 AND status='pending' RETURNING id, status, reject_reason, updated_at`,
+      [status, rejectReason || null, admin.userId, req.params.id]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ code: '10014', message: '审批不存在' });
+    const r = result.rows[0];
+    res.json({
+      id: r.id, status: r.status, rejectReason: r.reject_reason,
+      approverId: admin.userId, updatedAt: r.updated_at,
+    });
   },
 );
 
-// 里程统计
-// GET /api/v1/mileage/stats
-router.get('/mileage', async (req: Request, res: Response) => {
-  const user = (req as any).user as JwtPayload;
-  const days = parseInt(req.query.days as string) || 7;
-  const end = new Date();
-  const start = new Date(Date.now() - days * 86400000);
-
-  // 从位置记录计算里程（用服务器内存数据）
-  // 简化：基于模拟数据，实际从location routes取
-  const { default: locationRoutes } = await import('./location');
-  // 这里简化处理，返回模拟里程数据
-  res.json({ totalKm: (Math.random() * 100 + 10).toFixed(1), days, unit: 'km' });
+// 里程统计 — 用 Haversine 公式从 GPS 轨迹计算真实里程
+// GET /api/v1/approvals/mileage
+router.get('/mileage', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user as JwtPayload;
+    const days = Math.max(1, parseInt(req.query.days as string) || 7);
+    // Haversine 公式：对相邻 GPS 点位逐段计算球面距离并求和
+    const result = await pgPool.query(
+      `WITH points AS (
+         SELECT lat, lng, recorded_at,
+                LAG(lat) OVER (ORDER BY recorded_at, id) AS prev_lat,
+                LAG(lng) OVER (ORDER BY recorded_at, id) AS prev_lng
+         FROM location_records
+         WHERE user_id = $1 AND recorded_at >= NOW() - $2::interval
+       )
+       SELECT COALESCE(
+         (SELECT SUM(
+            6371000 * 2 * ASIN(SQRT(
+              POWER(SIN((lat - prev_lat) * PI() / 360), 2) +
+              COS(lat * PI() / 180) * COS(prev_lat * PI() / 180) *
+              POWER(SIN((lng - prev_lng) * PI() / 360), 2)
+            ))
+          ) / 1000 FROM points WHERE prev_lat IS NOT NULL AND prev_lng IS NOT NULL)
+       , 0)::float8 AS total_km`,
+      [user.userId, `${days} days`]
+    );
+    res.json({ totalKm: result.rows[0].total_km, days, unit: 'km' });
+  } catch (err) {
+    next(err);
+  }
 });
-
-// 密码修改
-// PUT /api/v1/auth/password
-router.put('/password',
-  validate([
-    body('oldPassword').notEmpty().withMessage('旧密码不能为空'),
-    body('newPassword').isLength({ min: 6 }).withMessage('新密码至少6位'),
-  ]),
-  async (req: Request, res: Response) => {
-    // 内存存储模式：统一密码为 test123456
-    const { oldPassword, newPassword } = req.body;
-    if (oldPassword !== 'test123456') {
-      return res.status(400).json({ code: '10015', message: '旧密码错误' });
-    }
-    // 实际项目中应更新数据库，内存模式固定密码不改
-    res.json({ success: true, message: '密码修改成功' });
-  },
-);
 
 export default router;

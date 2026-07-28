@@ -26,7 +26,9 @@ class OfflineService {
         'timestamp': DateTime.now().toIso8601String(),
       });
       // 最多保留500条
-      while (list.length > 500) list.removeAt(0);
+      while (list.length > 500) {
+        list.removeAt(0);
+      }
       await prefs.setString(_cacheKey, json.encode(list));
     } catch (e) {
       debugPrint('[OfflineService] 缓存位置失败: $e');
@@ -56,31 +58,48 @@ class OfflineService {
     final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
     final options = Options(headers: {'Authorization': 'Bearer $token'});
 
-    // 同步定位数据
+    // 同步定位数据（批量提交）
     final locCache = prefs.getString(_cacheKey);
     if (locCache != null) {
       final list = (json.decode(locCache) as List).cast<Map<String, dynamic>>();
-      for (final item in list) {
-        try {
-          await dio.post('/api/v1/location/report', data: item, options: options);
-          synced++;
-        } catch (_) { break; } // 网络仍然不可用就停止
+      // 转换为批量格式：ISO字符串→毫秒时间戳
+      final points = list.map((item) => {
+        'lng': item['lng'],
+        'lat': item['lat'],
+        'speed': item['speed'] ?? 0,
+        'timestamp': item['timestamp'] != null
+            ? DateTime.parse(item['timestamp'] as String).millisecondsSinceEpoch
+            : DateTime.now().millisecondsSinceEpoch,
+      }).toList();
+      try {
+        await dio.post('/api/v1/location/batch', data: {'points': points}, options: options);
+        synced = points.length;
+        await prefs.remove(_cacheKey);
+      } catch (_) {
+        // 网络仍然不可用就停止
       }
-      if (synced > 0) await prefs.remove(_cacheKey);
     }
 
-    // 同步打卡数据
+    // 同步打卡数据 — 逐条同步，只清除确已成功的记录
     final checkinCache = prefs.getString(_pendingCheckinKey);
     if (checkinCache != null) {
       final list = (json.decode(checkinCache) as List).cast<Map<String, dynamic>>();
+      final remaining = <Map<String, dynamic>>[];
       int checkinSynced = 0;
       for (final item in list) {
         try {
           await dio.post('/api/v1/attendance/checkin', data: item, options: options);
           checkinSynced++;
-        } catch (_) { break; }
+        } catch (_) {
+          // 本条同步失败，保留剩余待同步
+          remaining.add(item);
+        }
       }
-      if (checkinSynced > 0) await prefs.remove(_pendingCheckinKey);
+      if (remaining.isEmpty) {
+        await prefs.remove(_pendingCheckinKey);
+      } else {
+        await prefs.setString(_pendingCheckinKey, json.encode(remaining));
+      }
       synced += checkinSynced;
     }
 

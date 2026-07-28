@@ -1,8 +1,9 @@
 {
-  "latestVersion": "1.0.46",
-  "latestVersionCode": 43,
-  "releaseNotes": "- 首次安装自动弹出权限引导页（定位/电池优化/后台运行，一键跳转）\n- 轨迹回放地图底图不依赖隧道，隧道断后照常显示\n- 前台才刷新，锁屏/切后台停止定时刷新\n- 修复隧道旧地址导致卸载重装后登录失败\n- 版本管理+回滚体系建立\n- 更新自动刷新间隔3s→15s",
-  "downloadUrl": "/downloads/field-tracker-v1.0.46.apk",
+  "version": "1.0.49+62",
+  "buildNumber": 62,
+  "changelog": "• 围栏编辑与创建完全分离：编辑跳转独立全屏地图编辑页面（fence_edit_page.dart），不共享创建tab状态\n• 圆形围栏编辑：地图点选中心+半径滑块调整\n• 多边形围栏编辑：显示已有顶点、点击添加/撤回\n• 修复搜索坐标解析异常（double.parse→double.tryParse）\n• 修复搜索地址后搜索栏不显示标准化名称\n• 修复滚轮被吞噬问题（EagerGestureRecognizer）\n• 修复搜索建议下拉导致地图触摸丢失",
   "forceUpdate": false,
-  "minSupportedVersion": "1.0.1"
+  "downloadUrl": "https://gofile.io/d/ztE1Q6",
+  "fastDownloadUrl": "https://gofile.io/d/ztE1Q6",
+  "releaseDate": "2026-07-27"
 }

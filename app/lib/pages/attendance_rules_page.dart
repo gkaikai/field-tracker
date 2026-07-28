@@ -31,8 +31,8 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
   /// 根据 rule 预填数据创建/编辑对话框
   void _showRuleDialog({Map? existing}) {
     final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
-    final startCtrl = TextEditingController(text: existing?['checkin_start']?.toString()?.substring(0,5) ?? '09:00');
-    final endCtrl = TextEditingController(text: existing?['checkin_end']?.toString()?.substring(0,5) ?? '18:00');
+    final startCtrl = TextEditingController(text: existing != null ? (existing['checkin_start']?.toString() ?? '09:00').substring(0,5) : '09:00');
+    final endCtrl = TextEditingController(text: existing != null ? (existing['checkin_end']?.toString() ?? '18:00').substring(0,5) : '18:00');
     final radiusCtrl = TextEditingController(text: (existing?['radius_meters'] ?? 300).toString());
     final latCtrl = TextEditingController(text: existing?['center_lat']?.toString() ?? '');
     final lngCtrl = TextEditingController(text: existing?['center_lng']?.toString() ?? '');
@@ -49,9 +49,9 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
         const SizedBox(height: 8),
         TextField(controller: radiusCtrl, decoration: const InputDecoration(labelText: '有效半径(米)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
         const SizedBox(height: 8),
-        TextField(controller: latCtrl, decoration: const InputDecoration(labelText: '中心纬度', border: OutlineInputBorder()), keyboardType: TextInputType.numberWithOptions(decimal: true)),
+        TextField(controller: latCtrl, decoration: const InputDecoration(labelText: '中心纬度', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
         const SizedBox(height: 8),
-        TextField(controller: lngCtrl, decoration: const InputDecoration(labelText: '中心经度', border: OutlineInputBorder()), keyboardType: TextInputType.numberWithOptions(decimal: true)),
+        TextField(controller: lngCtrl, decoration: const InputDecoration(labelText: '中心经度', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
         const SizedBox(height: 8),
         TextButton.icon(
           onPressed: () {
@@ -73,6 +73,7 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
+          final messenger = ScaffoldMessenger.of(context);
           if (nameCtrl.text.isEmpty) return;
           final lat = double.tryParse(latCtrl.text);
           final lng = double.tryParse(lngCtrl.text);
@@ -84,12 +85,13 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
             'radius_meters': int.tryParse(radiusCtrl.text) ?? 300,
             'checkin_start': startCtrl.text,
             'checkin_end': endCtrl.text,
+            'rule_type': 'location',
           };
 
           try {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             if (isEdit) {
-              await dio.put('/api/v1/attendance/rules/${existing!['id']}',
+              await dio.put('/api/v1/attendance/rules/${existing['id']}',
                 data: body,
                 options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             } else {
@@ -97,8 +99,11 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                 data: body,
                 options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             }
+            if (!ctx.mounted) return;
             Navigator.pop(ctx); _load();
-          } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${isEdit ? "编辑" : "创建"}失败: $e'))); }
+          } catch (e) {
+            messenger.showSnackBar(SnackBar(content: Text('${isEdit ? "编辑" : "创建"}失败: $e')));
+          }
         }, child: Text(isEdit ? '保存' : '创建')),
       ],
     ));
@@ -118,7 +123,7 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                 return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: ListTile(
                   title: Text(r['name'] ?? '未命名'),
                   subtitle: Text(
-                    '${r['checkin_start']?.toString()?.substring(0,5) ?? "不限"} - ${r['checkin_end']?.toString()?.substring(0,5) ?? "不限"} | 半径${r['radius_meters'] ?? 300}m'
+                    '${(r['checkin_start']?.toString() ?? '不限').substring(0,5)} - ${(r['checkin_end']?.toString() ?? '不限').substring(0,5)} | 半径${r['radius_meters'] ?? 300}m'
                   ),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(icon: const Icon(Icons.edit, color: Colors.blue),
@@ -129,8 +134,9 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                           final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
                           await dio.delete('/api/v1/attendance/rules/${r['id']}',
                             options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+                          if (!context.mounted) return;
                           _load();
-                        } catch (_) { debugPrint('删除打卡规则失败'); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败'), backgroundColor: Colors.red)); }
+                        } catch (_) { debugPrint('删除打卡规则失败'); if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败'), backgroundColor: Colors.red)); }
                       }),
                   ]),
                 ));

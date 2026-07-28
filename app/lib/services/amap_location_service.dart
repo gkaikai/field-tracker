@@ -4,8 +4,11 @@ import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../config/app_config.dart';
 import 'api_service.dart';
+import 'auth_service.dart';
 import 'motion_detector.dart';
 import 'background_location_service.dart';
+import 'location_uploader.dart';
+import '../models/location_point.dart';
 import '../utils/geo_convert.dart' show haversineKm;
 
 /// 高德定位服务 — 使用原生ForegroundService的AMapLocationClient
@@ -33,6 +36,12 @@ class AmapLocationService {
   Timer? _tunnelRefreshTimer; // 隧道URL轮询
   DateTime? _lastGpsTime;
   bool _isRunning = false;
+
+  // ─── GPS看门狗重启保护 ───
+  int _gpsRestartCount = 0;
+  DateTime? _gpsRestartResetTime;
+  static const int _maxGpsRestarts = 3;        // 每小时最多重建3次
+  static const Duration _gpsRestartWindow = Duration(hours: 1);
 
   // ─── 位置缓存队列 ───
   final Queue<_PositionRecord> _positionBuffer = Queue();
@@ -82,10 +91,6 @@ class AmapLocationService {
 
   double _haversineKm(double lat1, double lng1, double lat2, double lng2) {
     return haversineKm(lat1, lng1, lat2, lng2);
-  }
-
-  double _haversineMeters(double lat1, double lng1, double lat2, double lng2) {
-    return _haversineKm(lat1, lng1, lat2, lng2) * 1000;
   }
 
   /// 启动高德定位追踪
@@ -145,11 +150,18 @@ class AmapLocationService {
       _onLocation(locData);
     };
 
-    // 4. 启动原生ForegroundService（含AMapLocationClient + WakeLock）
+    // 4. 初始化文件缓存上传器（必须在原生服务启动之前，避免init竞态）
+    try {
+      LocationUploader().init();
+      LocationUploader().setUserId(AuthService().userId ?? '');
+      LocationUploader().setToken(AuthService().token ?? '');
+    } catch (_) {}
+
+    // 5. 启动原生ForegroundService（含AMapLocationClient + WakeLock）
     await startBackgroundLocationService();
     _lastGpsTime = DateTime.now();
 
-    // 5. 启动上传定时器
+    // 6. 启动上传定时器
     _scheduleUploadTimer();
 
     // 6. 定期检查运动状态
@@ -231,6 +243,11 @@ class AmapLocationService {
       }
 
       // 精度校验
+      // 更新最佳精度
+      if (accuracy < _bestAccuracy) {
+        _bestAccuracy = accuracy;
+      }
+
       if (accuracy > AppConfig.maxAcceptableAccuracy) {
         _rejectedPositions++;
         _onGpsLoss();
@@ -356,7 +373,20 @@ class AmapLocationService {
     final elapsed = DateTime.now().difference(_lastGpsTime!);
     if (elapsed.inSeconds < 60) return;
 
-    debugPrint('[AmapLoc] GPS流已静默${elapsed.inSeconds}秒，正在重建ForegroundService...');
+    // 限频保护：每小时最多重建3次，超限则降级等待
+    final now = DateTime.now();
+    if (_gpsRestartResetTime == null || now.difference(_gpsRestartResetTime!) > _gpsRestartWindow) {
+      _gpsRestartCount = 0;
+      _gpsRestartResetTime = now;
+    }
+    if (_gpsRestartCount >= _maxGpsRestarts) {
+      debugPrint('[AmapLoc] GPS重启已达上限($_maxGpsRestarts次/小时)，降级等待用户手动恢复');
+      onError?.call('GPS定位不稳定，请稍后手动重启APP');
+      return;
+    }
+    _gpsRestartCount++;
+
+    debugPrint('[AmapLoc] GPS流已静默${elapsed.inSeconds}秒，正在重建ForegroundService... (第$_gpsRestartCount次)');
     onError?.call('GPS流超时，正在重启定位服务...');
 
     // 重建原生ForegroundService（内含AMapLocationClient重启）
@@ -400,6 +430,20 @@ class AmapLocationService {
       timestamp: timestamp,
     ));
 
+    // 同时写入文件缓存（用于离线恢复，APP重启不丢）
+    try {
+      final uid = AuthService().userId ?? '';
+      LocationUploader().enqueue(LocationPoint(
+        userId: uid,
+        latitude: lat,
+        longitude: lng,
+        accuracy: accuracy,
+        speed: (locationData['speed'] as num?)?.toDouble(),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+      ));
+    } catch (_) {
+      // 不影响定位主流程
+    }
     if (_positionBuffer.length >= _currentBufferSize) {
       _flushBuffer();
     }
@@ -452,13 +496,16 @@ class AmapLocationService {
         _positionBuffer.removeWhere((p) => batchSet.contains(p));
 
         // 围栏检测（非关键）
-        try {
-          await _api.post('/api/v1/fences/auto-check', data: {
-            'lat': currentLat ?? last.lat,
-            'lng': currentLng ?? last.lng,
-          });
-        } catch (e) {
-          debugPrint('[AmapLoc] 围栏检测请求失败: $e');
+        if (!_gpsLost) {
+          try {
+            await _api.post('/api/v1/fences/auto-check', data: {
+              'lat': currentLat ?? last.lat,
+              'lng': currentLng ?? last.lng,
+              'accuracy': currentAccuracy,
+            });
+          } catch (e) {
+            debugPrint('[AmapLoc] 围栏检测请求失败: $e');
+          }
         }
       } else {
         debugPrint('[AmapLoc] 保留${batch.length}个点在缓冲区重试');

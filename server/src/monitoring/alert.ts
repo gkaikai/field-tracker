@@ -236,11 +236,15 @@ export function recordSlowRequest(durationMs: number, path: string): void {
   resetBucketIfExpired();
   errorBucket.countSlow++;
 
-  sendAlert('warning', '接口响应超过 3 秒', [
-    `路径: ${path}`,
-    `耗时: ${durationMs}ms`,
-    `阈值: 3000ms`,
-  ].join('\n'));
+  // 每分钟最多触发一次慢请求告警，避免告警风暴
+  if (errorBucket.countSlow >= 5) {
+    sendAlert('warning', '接口响应超过 3 秒', [
+      `路径: ${path}`,
+      `耗时: ${durationMs}ms`,
+      `当前窗口(1分钟)内慢请求数: ${errorBucket.countSlow}`,
+      `阈值: 5次/分钟`,
+    ].join('\n'));
+  }
 }
 
 /** 静默所有告警（用于测试/维护模式） */

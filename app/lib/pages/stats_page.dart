@@ -33,7 +33,7 @@ class _StatsPageState extends State<StatsPage> {
 
       setState(() {
         _stats = {
-          'attendance': attR.data['total'] ?? attR.data['records']?.length ?? 0,
+          'attendance': attR.data['pagination']?['total'] ?? attR.data['records']?.length ?? 0,
           'trackPoints': locR.data['points']?.length ?? 0,
           'visits': visitR.data['total'] ?? visitR.data['visits']?.length ?? 0,
         };

@@ -3,11 +3,46 @@ server/public.bak.*
 server/dist.bak.*
 *.bak.*
 
+# Node.js
+node_modules/
+server/node_modules/
+
+# 编译产物
+**/dist/
+**/build/
+app/build/
+*.js.map
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# Flutter
+**/pubspec.lock
+**/.dart_tool/
+
+# Android APK
+*.apk
+*.aab
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # 运行时文件
 tunnel_url.txt
 tunnel_url.txt.current
 current_tunnel_url.txt
 *.log
+pgdata/
+*.db
+*.sqlite
 
 # 系统文件
 .DS_Store
+__pycache__/
+*.pyc
+

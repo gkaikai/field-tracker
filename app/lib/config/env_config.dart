@@ -9,8 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// 根据当前构建模式获取环境配置
 class EnvConfig {
-  /// 默认生产地址（构建前会自动更新为最新隧道地址）
-  static const String _defaultProdUrl = 'https://255d901b49a5d326-123-123-97-213.serveousercontent.com';
+  /// 默认生产地址（空字符串，用户首次使用需手动配置）
+  static const String _defaultProdUrl = '';
 
   /// 后端 API 基础地址
   static String _cachedBaseUrl = '';

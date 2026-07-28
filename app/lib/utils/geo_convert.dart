@@ -1,6 +1,6 @@
-/// 地理坐标工具函数
-/// 
-/// 共享Haversine公式实现，避免多处重复定义
+// 地理坐标工具函数
+// 
+// 共享Haversine公式实现，避免多处重复定义
 
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 

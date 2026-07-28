@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:dio/dio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:open_file/open_file.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 import 'package:field_tracker/services/background_location_service.dart';
 import '../services/auth_service.dart';
-import '../config/app_config.dart';
+import '../services/update_service.dart';
 import '../utils/device_info.dart';
 import 'map_page.dart';
 import 'attendance_page.dart';
@@ -132,7 +129,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('$title'),
+        title: Text(title),
         content: SingleChildScrollView(child: Text(steps)),
         actions: [
           TextButton(
@@ -145,6 +142,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (await Permission.ignoreBatteryOptimizations.status.isDenied) {
                 await Permission.ignoreBatteryOptimizations.request();
               }
+              if (!ctx.mounted) return;
               Navigator.pop(ctx);
             },
             child: const Text('再去系统设置'),
@@ -161,113 +159,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  bool _updating = false;
-  double _updateProgress = 0;
-
-  /// 检查更新并弹出对话框
+  /// 检查更新并弹出对话框（委托给 UpdateService）
   Future<void> _checkForUpdate() async {
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      final resp = await dio.get('/app-version.json');
-      final data = resp.data as Map;
-
-      final latestVer = data['latestVersion'] as String? ?? '';
-      final notes = data['releaseNotes'] as String? ?? '暂无更新说明';
-      final downloadUrl = data['downloadUrl'] as String? ?? '';
-      final force = data['forceUpdate'] as bool? ?? false;
-
-      final currentVer = _appVersion;
-
-      // 比较版本号 — 用语义化版本比较，不走字符串
-      final isNewer = _isVersionNewer(latestVer, currentVer);
-
+      final updateInfo = await UpdateService.checkForUpdate();
       if (!mounted) return;
-
-      if (!isNewer) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已是最新版本'), duration: Duration(seconds: 2)),
-          );
-        }
-        return;
+      if (updateInfo != null) {
+        await UpdateService.showUpdateDialog(context, updateInfo);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已是最新版本'), duration: Duration(seconds: 2)),
+        );
       }
-
-      await showDialog(
-        context: context,
-        barrierDismissible: !force,
-        builder: (ctx) {
-          String? dlState;
-          return StatefulBuilder(builder: (ctx, setS) {
-            return AlertDialog(
-              title: Row(children: [
-                Icon(isNewer ? Icons.system_update : Icons.check_circle,
-                    color: isNewer ? Colors.blue : Colors.green, size: 22),
-                const SizedBox(width: 8),
-                Text(isNewer ? '发现新版本' : '已是最新版'),
-              ]),
-              content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('当前版本: v$currentVer'),
-                Text('最新版本: v$latestVer'),
-                const SizedBox(height: 8),
-                Text('更新说明:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                Text(notes, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
-                if (dlState != null) ...[
-                  const SizedBox(height: 8),
-                  LinearProgressIndicator(value: _updateProgress),
-                  const SizedBox(height: 4),
-                  Text(dlState ?? '', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-                ],
-              ]),
-              actions: [
-                if (!force) TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-                if (isNewer && dlState == null)
-                  ElevatedButton.icon(
-                    icon: _updating ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.download, size: 18),
-                    label: Text(_updating ? '下载中...' : '下载更新'),
-                    onPressed: _updating ? null : () async {
-                      if (downloadUrl.isEmpty) return;
-                      setS(() { _updating = true; dlState = '正在下载...'; });
-                      try {
-                        final saveDir = await getTemporaryDirectory();
-                        final savePath = '${saveDir.path}/field-tracker-$latestVer.apk';
-
-                        await dio.download(
-                          downloadUrl,
-                          savePath,
-                          onReceiveProgress: (received, total) {
-                            final progress = total > 0 ? received / total : 0.0;
-                            setS(() {
-                              _updateProgress = progress;
-                              dlState = '${(progress * 100).toStringAsFixed(0)}% (${(received / 1024 / 1024).toStringAsFixed(1)}MB/${(total / 1024 / 1024).toStringAsFixed(1)}MB)';
-                            });
-                          },
-                          options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}),
-                        );
-
-                        setS(() => dlState = '下载完成，正在安装...');
-                        final result = await OpenFile.open(savePath);
-                        if (result.type != ResultType.done) {
-                          setS(() => dlState = '安装失败，请手动打开文件安装');
-                        }
-                      } catch (e) {
-                        setS(() => dlState = '下载失败: $e');
-                      }
-                    },
-                  ),
-              ],
-            );
-          });
-        },
-      );
     } catch (e) {
       if (mounted) {
-        showDialog(context: context, builder: (ctx) => AlertDialog(
-          title: const Text('检查更新失败'),
-          content: Text('无法连接到更新服务器\n$e'),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('确定'))],
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('检查更新失败: $e')),
+        );
       }
+      debugPrint('[Update] 首页手动检查更新失败: $e');
     }
   }
 
@@ -414,27 +324,5 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ),
       ),
     );
-  }
-
-  /// 语义化版本比较：如果 latest > current 返回 true
-  bool _isVersionNewer(String latest, String current) {
-    try {
-      final latestParts = latest.replaceAll('v', '').split('.').map(int.parse).toList();
-      final currentParts = current.replaceAll('v', '').split('.').map(int.parse).toList();
-      // 补齐到相同长度
-      final maxLen = latestParts.length > currentParts.length
-          ? latestParts.length : currentParts.length;
-      while (latestParts.length < maxLen) latestParts.add(0);
-      while (currentParts.length < maxLen) currentParts.add(0);
-      for (int i = 0; i < maxLen; i++) {
-        if (latestParts[i] != currentParts[i]) {
-          return latestParts[i] > currentParts[i];
-        }
-      }
-      return false; // 完全相等
-    } catch (_) {
-      // 解析失败时回退到字符串比较（保守：不提示更新）
-      return false;
-    }
   }
 }

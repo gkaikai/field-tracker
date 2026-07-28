@@ -38,7 +38,6 @@ class MotionDetector {
   // ─── 静止基准点 ───
   double? _stillBaseLat;
   double? _stillBaseLng;
-  DateTime? _stillBaseTime;
 
   // ─── 时间记录 ───
   DateTime? _uncertainStartTime;
@@ -70,7 +69,7 @@ class MotionDetector {
 
     try {
       _accelSubscription = accelerometerEventStream(
-        samplingPeriod: Duration(milliseconds: 
+        samplingPeriod: const Duration(milliseconds: 
           AppConfig.accelerometerSampleIntervalMs),
       ).listen(
         (AccelerometerEvent event) {
@@ -101,7 +100,6 @@ class MotionDetector {
     _state = MotionState.moving;
     _stillBaseLat = null;
     _stillBaseLng = null;
-    _stillBaseTime = null;
     _uncertainStartTime = null;
     _lowSpeedStartTime = null;
     _stillStartTime = null;
@@ -176,7 +174,6 @@ class MotionDetector {
       if (currentLat != null && currentLng != null) {
         _stillBaseLat = currentLat;
         _stillBaseLng = currentLng;
-        _stillBaseTime = now;
       }
       return;
     }
@@ -191,7 +188,6 @@ class MotionDetector {
       if (currentLat != null && currentLng != null) {
         _stillBaseLat = currentLat;
         _stillBaseLng = currentLng;
-        _stillBaseTime = now;
       }
       return;
     }
@@ -240,7 +236,6 @@ class MotionDetector {
       if (currentLat != null && currentLng != null) {
         _stillBaseLat = currentLat;
         _stillBaseLng = currentLng;
-        _stillBaseTime = now;
       }
     }
   }
@@ -249,7 +244,6 @@ class MotionDetector {
   void resetStillBase(double lat, double lng) {
     _stillBaseLat = lat;
     _stillBaseLng = lng;
-    _stillBaseTime = DateTime.now();
   }
 
   /// 获取静止基准点
@@ -275,7 +269,6 @@ class MotionDetector {
 
   void _transitionTo(MotionState newState) {
     if (_state != newState) {
-      final old = _state;
       _state = newState;
       onStateChanged?.call(newState);
     }

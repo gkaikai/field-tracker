@@ -1,11 +1,11 @@
-/// 原生定位前台服务接口
-///
-/// 通过 MethodChannel 调用 Android 原生 ForegroundService
-/// 原生服务使用AMapLocationClient采集GPS（此进程唯一的AMap实例）
-/// 数据通过 onLocationUpdate 通道送回 Flutter
-///
-/// 架构：单一AMapLocationClient在ForegroundService中运行，
-/// 同时服务：原生HTTP上传 + Flutter地图显示。
+// 原生定位前台服务接口
+//
+// 通过 MethodChannel 调用 Android 原生 ForegroundService
+// 原生服务使用AMapLocationClient采集GPS（此进程唯一的AMap实例）
+// 数据通过 onLocationUpdate 通道送回 Flutter
+//
+// 架构：单一AMapLocationClient在ForegroundService中运行，
+// 同时服务：原生HTTP上传 + Flutter地图显示。
 
 import 'dart:async';
 import 'package:flutter/services.dart';

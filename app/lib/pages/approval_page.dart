@@ -68,6 +68,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
+          final messenger = ScaffoldMessenger.of(context);
           try {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             await dio.post('/api/v1/approvals', data: {
@@ -76,8 +77,11 @@ class _ApprovalPageState extends State<ApprovalPage> {
               if (showAmount) 'amount': amountCtrl.text,
               'remark': remarkCtrl.text,
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+            if (!ctx.mounted) return;
             Navigator.pop(ctx); _load();
-          } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('提交失败: $e'))); }
+          } catch (e) {
+            messenger.showSnackBar(SnackBar(content: Text('提交失败: $e')));
+          }
         }, child: const Text('提交')),
       ],
     )));
@@ -111,7 +115,7 @@ class _ApprovalPageState extends State<ApprovalPage> {
                     final amount = a['amount'];
                     final remark = a['remark'] ?? '';
                     String subtitle = a['reason'] ?? '';
-                    if (amount != null && amount > 0) subtitle += ' | ¥${amount}';
+                    if (amount != null && amount > 0) subtitle += ' | ¥$amount';
                     if (remark.isNotEmpty) subtitle += ' | $remark';
 
                     return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: ListTile(

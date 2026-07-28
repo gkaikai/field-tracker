@@ -32,7 +32,7 @@ def banner(s):
     print(f"\n{'='*60}\n  {s}\n{'='*60}"); sys.stdout.flush()
 
 # 登录
-r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"test123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
+r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
 try: TOKEN = json.loads(r.stdout)['token']; print(f"✅ 登录")
 except: print("❌ 登录失败"); sys.exit(1)
 
@@ -55,7 +55,7 @@ bg = subprocess.Popen("cd /Users/openclaw-gkf/development/field_tracker/server &
 time.sleep(4)
 
 # 重新登录
-r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"test123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
+r = subprocess.run("curl -s http://localhost:3000/api/v1/auth/login -X POST -H 'Content-Type: application/json' -d '{\"phone\":\"13800138000\",\"password\":\"123456\"}'", shell=True, capture_output=True, text=True, timeout=10)
 if r.returncode == 0 and 'token' in r.stdout:
     TOKEN = json.loads(r.stdout)['token']
     print("  ✅ 重启后登录成功")

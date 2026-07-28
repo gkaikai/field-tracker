@@ -55,8 +55,10 @@ class MainActivity : FlutterActivity() {
                 }
                 "openBatteryOptimization" -> {
                     try {
+                        // 国产ROM（小米/华为/OPPO）不响应 ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                        // 改为打开应用详情设置页，让用户手动去找「耗电管理」开关
                         val intent = Intent(
-                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS
                         ).apply {
                             data = android.net.Uri.parse("package:$packageName")
                         }

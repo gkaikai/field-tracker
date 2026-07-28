@@ -19,7 +19,12 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
   String _brand = '检测中...';
   bool _loading = true;
 
-  // 完成状态
+  // 已跳转到系统设置（第一步）
+  bool _locationJumped = false;
+  bool _batteryJumped = false;
+  bool _bgJumped = false;
+
+  // 用户手动确认已完成（第二步）
   bool _locationDone = false;
   bool _batteryDone = false;
   bool _bgDone = false;
@@ -79,11 +84,34 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
                   title: '允许定位权限',
                   subtitle: '用于实时追踪您的当前位置',
                   done: _locationDone,
-                  buttonText: '前往设置',
+                  jumped: _locationJumped,
                   onTap: () async {
-                    await SystemSettings.openAppSettings();
-                    setState(() => _locationDone = true);
-                    _checkAllDone();
+                    if (_locationDone) return;
+                    if (_locationJumped) {
+                      setState(() => _locationDone = true);
+                      _checkAllDone();
+                      return;
+                    }
+                    final success = await SystemSettings.openAppSettings();
+                    if (!success) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('跳转失败，请手动在系统设置中开启定位权限'),
+                          backgroundColor: Colors.orange,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    setState(() => _locationJumped = true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('设置后点「✅ 点此确认已设置」'),
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(height: 12),
@@ -92,13 +120,36 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
                 _buildStepCard(
                   icon: Icons.battery_charging_full,
                   title: '忽略电池优化',
-                  subtitle: '防止系统在后台时自动关闭APP定位',
+                  subtitle: '手动关闭电池优化防止系统后台杀定位',
                   done: _batteryDone,
-                  buttonText: '前往设置',
+                  jumped: _batteryJumped,
                   onTap: () async {
-                    await SystemSettings.requestBatteryOptimization();
-                    setState(() => _batteryDone = true);
-                    _checkAllDone();
+                    if (_batteryDone) return;
+                    if (_batteryJumped) {
+                      setState(() => _batteryDone = true);
+                      _checkAllDone();
+                      return;
+                    }
+                    final success = await SystemSettings.requestBatteryOptimization();
+                    if (!success) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('跳转失败，请手动在系统设置中关闭电池优化'),
+                          backgroundColor: Colors.orange,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    setState(() => _batteryJumped = true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('关闭${_getBrandBatteryTerm(_brand)}后点「✅ 点此确认已设置」'),
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(height: 12),
@@ -109,11 +160,34 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
                   title: '允许后台运行',
                   subtitle: _getBrandBgHint(_brand),
                   done: _bgDone,
-                  buttonText: '前往设置',
+                  jumped: _bgJumped,
                   onTap: () async {
-                    await SystemSettings.openAppSettings();
-                    setState(() => _bgDone = true);
-                    _checkAllDone();
+                    if (_bgDone) return;
+                    if (_bgJumped) {
+                      setState(() => _bgDone = true);
+                      _checkAllDone();
+                      return;
+                    }
+                    final success = await SystemSettings.openAppSettings();
+                    if (!success) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('跳转失败，请手动在系统设置中允许后台运行'),
+                          backgroundColor: Colors.orange,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    setState(() => _bgJumped = true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('开启后台运行后点「✅ 点此确认已设置」'),
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(height: 24),
@@ -165,12 +239,18 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
     required String title,
     required String subtitle,
     required bool done,
-    required String buttonText,
+    required bool jumped,
     required VoidCallback onTap,
   }) {
+    final btnText = done ? '✅ 已设置' : (jumped ? '✅ 点此确认已设置' : '前往设置');
     return Card(
-      elevation: done ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: done ? 1 : (jumped ? 3 : 2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: jumped && !done
+            ? BorderSide(color: Colors.green[200]!, width: 1.5)
+            : BorderSide.none,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -206,14 +286,14 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
               TextButton(
                 onPressed: onTap,
                 style: TextButton.styleFrom(
-                  backgroundColor: Colors.blue[50],
-                  foregroundColor: Colors.blue[700],
+                  backgroundColor: jumped ? Colors.green[50] : Colors.blue[50],
+                  foregroundColor: jumped ? Colors.green[700] : Colors.blue[700],
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   minimumSize: Size.zero,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20)),
                 ),
-                child: Text(buttonText, style: const TextStyle(fontSize: 12)),
+                child: Text(btnText, style: const TextStyle(fontSize: 12)),
               ),
           ],
         ),
@@ -257,18 +337,18 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
   }
 
   Map<String, String>? _getBrandGuideMap(String brand) {
-    switch (brand) {
-      case 'Huawei':
+    switch (brand.toLowerCase()) {
+      case 'huawei':
         return {
           'title': '华为额外设置',
           'steps': '进入「设置→应用→应用管理→本应用→耗电详情」，关闭「自动管理」，手动开启三项权限。',
         };
-      case 'Xiaomi':
+      case 'xiaomi':
         return {
           'title': '小米额外设置',
           'steps': '进入「设置→应用设置→应用管理→本应用→省电策略」，选择「无限制」。同时开启「自启动」。',
         };
-      case 'OPPO':
+      case 'oppo':
         return {
           'title': 'OPPO额外设置',
           'steps': '进入「设置→应用→应用管理→本应用→耗电管理」，开启「允许完全后台运行」。',
@@ -279,21 +359,39 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
   }
 
   String _getBrandBgHint(String brand) {
-    switch (brand) {
-      case 'Huawei':
+    switch (brand.toLowerCase()) {
+      case 'huawei':
         return '在应用详情中关闭「自动管理」并开启后台活动';
-      case 'Xiaomi':
+      case 'xiaomi':
         return '在应用详情中将省电策略设为「无限制」';
-      case 'OPPO':
+      case 'oppo':
         return '在应用详情中开启「允许完全后台运行」';
       default:
         return '在应用详情中允许后台运行';
     }
   }
 
+  /// 电池优化在不同品牌ROM上的术语
+  String _getBrandBatteryTerm(String brand) {
+    switch (brand.toLowerCase()) {
+      case 'huawei':
+      case 'oppo':
+        return '「耗电管理」';
+      case 'xiaomi':
+        return '「省电策略」';
+      case 'vivo':
+        return '「后台高耗电」';
+      case 'samsung':
+        return '「后台使用限制」';
+      default:
+        return '电池优化';
+    }
+  }
+
   bool _allDone() => _locationDone && _batteryDone && _bgDone;
 
   void _checkAllDone() {
+    if (!mounted) return;
     if (_allDone()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -306,7 +404,11 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
     setState(() {});
   }
 
+  bool _onDoneGuard = false;
+
   Future<void> _onDone() async {
+    if (_onDoneGuard) return;
+    _onDoneGuard = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('background_guide_done', true);
@@ -316,14 +418,6 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
     }
 
     if (mounted) {
-      if (_allDone()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('设置完成，感谢配合！'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
       Navigator.pop(context);
     }
   }

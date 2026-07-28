@@ -6,9 +6,11 @@
 //   3. 最多每60秒强制上传一次（避免定位数据延迟过大）
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/location_point.dart';
 import '../config/amap_key.dart';
 import '../config/app_config.dart';
@@ -16,37 +18,39 @@ import '../config/app_config.dart';
 class LocationUploader {
   static final LocationUploader _instance = LocationUploader._();
   factory LocationUploader() => _instance;
-  LocationUploader._() {
-    _dio = Dio(BaseOptions(
-      baseUrl: AppConfig.baseUrl,
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-    ));
-  }
+  LocationUploader._();
 
   /// 认证失效回调（供 UI 层跳转登录页）
   void Function()? onAuthError;
 
-  final List<LocationPoint> _pendingBatch = [];
-  late Dio _dio;
+  final Queue<LocationPoint> _pendingBatch = Queue<LocationPoint>();
+  Dio? _dio;
 
   Timer? _flushTimer;
   bool _uploading = false;
   int _nextId = 1;
+  String? _userId;
+  String _cacheDir = Directory.systemTemp.path; // 默认值，init后替换为应用私有目录
 
-  /// 缓存文件路径
-  File get _cacheFile => File(
-        '${Directory.systemTemp.path}/field_tracker_location_cache.json',
-      );
+  /// 缓存文件路径（以userId区分，避免多用户同设备混用）
+  File get _cacheFile {
+    if (_userId != null && _userId!.isNotEmpty) {
+      return File('$_cacheDir/field_tracker_loc_$_userId.json');
+    }
+    return File('$_cacheDir/field_tracker_location_cache.json');
+  }
+
+  /// 设置当前用户ID（登录后调用），缓存文件路径自动切换
+  void setUserId(String userId) => _userId = userId;
 
   /// 设置认证 Token（登录后调用）
   void setToken(String token) {
-    _dio.options.headers['Authorization'] = 'Bearer $token';
+    _dio?.options.headers['Authorization'] = 'Bearer $token';
   }
 
   /// 更新服务器地址（用户手动设置后调用）
   void updateBaseUrl(String url) {
-    _dio.options.baseUrl = url;
+    _dio?.options.baseUrl = url;
   }
 
   // ============================================================
@@ -55,6 +59,17 @@ class LocationUploader {
   Future<void> init() async {
     // 防止重复初始化导致定时器泄漏
     _flushTimer?.cancel();
+
+    // 用应用私有目录代替系统临时目录（系统不会自动清理）
+    final dir = await getApplicationDocumentsDirectory();
+    _cacheDir = dir.path;
+
+    // 初始化Dio
+    _dio = Dio(BaseOptions(
+      baseUrl: AppConfig.baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ));
 
     // 从文件恢复已缓存的记录，确定下一个 id
     final records = await _readAll();
@@ -73,23 +88,13 @@ class LocationUploader {
   //  添加位置到缓存队列
   // ============================================================
   Future<void> enqueue(LocationPoint point) async {
-    _pendingBatch.add(point);
-
-    // 写入文件缓存（双重保险）
-    try {
-      final record = {
-        'id': _nextId++,
-        ...point.toDbMap(),
-      };
-      final records = await _readAll();
-      records.add(record);
-      await _writeAll(records);
-    } catch (_) {
-      // 文件写入失败不影响定位主流程
+    if (_pendingBatch.length >= 1000) {
+      _pendingBatch.removeFirst(); // Queue.removeFirst = O(1)
     }
+    _pendingBatch.addLast(point);
 
-    // 攒够一批或达到时间，立即上传
-    if (_pendingBatch.length >= AMapConfig.uploadBatchSize) {
+    // 攒够一批立即触发 flush
+    if (_dio != null && _pendingBatch.length >= AMapConfig.uploadBatchSize) {
       await flushCache();
     }
   }
@@ -102,18 +107,31 @@ class LocationUploader {
     _uploading = true;
 
     try {
-      // 1. 上传内存中的待发批次
-      if (_pendingBatch.isNotEmpty) {
-        await _uploadBatch(_pendingBatch.toList());
-        _pendingBatch.clear();
+      // 快照+立即清空，消除与 enqueue 的竞态
+      final batch = List<LocationPoint>.from(_pendingBatch);
+      _pendingBatch.clear();
+
+      if (batch.isNotEmpty) {
+        final records = await _readAll();
+        for (final point in batch) {
+          records.add({
+            'id': _nextId++,
+            ...point.toDbMap(),
+          });
+        }
+        await _writeAll(records);
       }
 
-      // 2. 上传文件中未上传的记录
       await _uploadFromFile();
     } catch (e) {
       // 上传失败不要紧，留在缓存里下次继续
     } finally {
       _uploading = false;
+    }
+
+    // 释放锁后如果积压了足够数据，立即再刷一次
+    if (!_uploading && _pendingBatch.length >= AMapConfig.uploadBatchSize) {
+      flushCache();
     }
   }
 
@@ -121,10 +139,10 @@ class LocationUploader {
   //  批量上传到服务器
   // ============================================================
   Future<bool> _uploadBatch(List<LocationPoint> points) async {
-    if (points.isEmpty) return true;
+    if (points.isEmpty || _dio == null) return true;
 
     try {
-      final response = await _dio.post(
+      final response = await _dio!.post(
         '/api/v1/location/batch',
         data: {
           'points': points.map((p) => p.toJson()).toList(),

@@ -20,6 +20,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(100)    NOT NULL,
+    user_code       VARCHAR(50)     UNIQUE,             -- 员工工号
     phone           VARCHAR(20)     NOT NULL,
     password_hash   VARCHAR(255)    NOT NULL,
     department_id   UUID,                          -- 外键在 departments 创建后补充

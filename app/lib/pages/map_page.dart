@@ -27,10 +27,12 @@ class _MapPageState extends State<MapPage> {
   AMapController? _mapController;
   double? _currentLat;
   double? _currentLng;
-  bool _isLocating = false;
   bool _isCheckInLoading = false;
   String _statusText = '正在获取定位...';
   String _accuracyText = '';
+
+  // 地图类型切换
+  MapType _mapType = MapType.normal;
 
   // 客户标记相关
   final ApiService _api = ApiService();
@@ -64,7 +66,6 @@ class _MapPageState extends State<MapPage> {
         setState(() {
           _currentLat = loc.currentLat;
           _currentLng = loc.currentLng;
-          _isLocating = true;
           _statusText =
               '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
         });
@@ -77,7 +78,6 @@ class _MapPageState extends State<MapPage> {
         setState(() {
           _currentLat = lat;
           _currentLng = lng;
-          _isLocating = true;
           _statusText =
               '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
           _accuracyText = '精度: ${accuracy.toStringAsFixed(0)}m'
@@ -121,9 +121,7 @@ class _MapPageState extends State<MapPage> {
   Future<void> _loadFences() async {
     try {
       final resp = await _api.get('/api/v1/fences');
-      final List<dynamic> raw = resp.data is List
-          ? resp.data
-          : (resp.data['data'] ?? resp.data['fences'] ?? []);
+      final List<dynamic> raw = resp.data is List ? resp.data : (resp.data['fences'] ?? []);
       final fences = <Polygon>{};
       for (final f in raw) {
         final fence = f as Map<String, dynamic>;
@@ -290,7 +288,7 @@ class _MapPageState extends State<MapPage> {
         setState(() {
           _customerMarkers = markers;
           _statusText =
-              '${_currentLat != null ? '${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}' : '定位中...'}${markers.length > 0 ? ' | 客户 ${markers.length}' : ''}';
+              '${_currentLat != null ? '${_currentLat!.toStringAsFixed(4)}, ${_currentLng!.toStringAsFixed(4)}' : '定位中...'}${markers.isNotEmpty ? ' | 客户 ${markers.length}' : ''}';
         });
       }
     } catch (e) {
@@ -362,10 +360,11 @@ class _MapPageState extends State<MapPage> {
       body: Stack(
         children: [
           AMapWidget(
-            apiKey: AMapApiKey(
+            apiKey: const AMapApiKey(
               androidKey: AMapConfig.androidKey,
               iosKey: AMapConfig.iosKey,
             ),
+            mapType: _mapType,
             privacyStatement: const AMapPrivacyStatement(
               hasContains: true,
               hasShow: true,
@@ -489,6 +488,29 @@ class _MapPageState extends State<MapPage> {
                   ),
                 ),
               ],
+            ),
+          ),
+          // ---- 卫星/标准地图切换按钮 ----
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 80,
+            right: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'map_type',
+              onPressed: () {
+                setState(() {
+                  _mapType = _mapType == MapType.normal
+                      ? MapType.satellite
+                      : MapType.normal;
+                });
+              },
+              backgroundColor: Colors.white,
+              child: Icon(
+                _mapType == MapType.normal
+                    ? Icons.satellite_alt
+                    : Icons.map,
+                color: Colors.blue,
+                size: 20,
+              ),
             ),
           ),
         ],

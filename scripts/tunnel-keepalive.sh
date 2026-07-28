@@ -1,7 +1,7 @@
 #!/bin/bash
-# field_tracker 隧道保活脚本 v2 (升级版)
+# field_tracker 隧道保活脚本 v3 (升级版+GitHub远程配置推送)
 # 每5分钟检查一次，隧道断开自动重连
-# 当隧道URL变更时，POST上报到服务端API，APK端自动轮询获取新URL
+# 当隧道URL变更时，自动更新GitHub远程配置（APK通过CDN获取最新URL）
 #
 # 分析日志写入: ~/logs/tunnel-monitor.log (OK/FAIL + URL)
 # 失效分析日志:  ~/logs/tunnel-failures.log
@@ -22,6 +22,52 @@ mkdir -p "$HOME/logs"
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
+# ── 辅助函数：动态获取当前时间戳 ──
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+# ── 辅助函数：更新GitHub远程配置（APK通过CDN获取最新URL）──
+CONFIG_REPO_DIR="$HOME/development/field-tracker-config"
+update_github_config() {
+    local url="$1"
+    if [ -z "$url" ]; then return; fi
+    if [ ! -d "$CONFIG_REPO_DIR" ]; then
+        echo "$TIMESTAMP GIT_CLONE_FAIL — 配置仓库目录不存在" >> "$MONITOR_LOG"
+        return
+    fi
+    cd "$CONFIG_REPO_DIR"
+    # 拉取最新（有冲突强制覆盖本地）
+    git fetch origin main 2>/dev/null || true
+    git reset --hard origin/main 2>/dev/null || true
+    # 更新config.json里的URL（关掉set -e保护，防止python错误导致脚本退出）
+    set +e
+    local new_version=$(( $(python3 -c "import json;print(json.load(open('config.json')).get('version',0))" 2>/dev/null || echo 0) + 1 ))
+    local now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    python3 -c "
+import json
+with open('config.json') as f:
+    cfg = json.load(f)
+cfg['version'] = $new_version
+cfg['updated_at'] = '$now_iso'
+cfg['servers'] = [s for s in cfg.get('servers', []) if s.get('label') != 'primary']
+cfg['servers'].insert(0, {'url': '$url', 'label': 'primary', 'created_at': '$now_iso'})
+with open('config.json', 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+" 2>/dev/null
+    if git diff --quiet config.json 2>/dev/null; then
+        # 没变化，不推送
+        set -e
+        return
+    fi
+    git add config.json
+    git commit -m "chore: update tunnel URL [auto v${new_version}]" 2>/dev/null || true
+    if git push origin main 2>/dev/null; then
+        echo "$TIMESTAMP GIT_UPDATED $url (v$new_version)" >> "$MONITOR_LOG"
+    else
+        echo "$TIMESTAMP GIT_PUSH_FAIL $url" >> "$MONITOR_LOG"
+    fi
+    set -e
+}
+
 # ── 辅助函数：上报隧道URL到API ──
 report_url() {
     local url="$1"
@@ -34,6 +80,8 @@ report_url() {
             -d "{\"url\":\"$url\"}" > /dev/null 2>&1 && \
         echo "$TIMESTAMP NEW_URL $url" >> "$MONITOR_LOG" || \
         echo "$TIMESTAMP REPORT_FAIL $url" >> "$MONITOR_LOG"
+        # 同时更新GitHub远程配置（APK端通过CDN获取）
+        update_github_config "$url"
     fi
 }
 
@@ -69,7 +117,7 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
                         nohup ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
                             -o ExitOnForwardFailure=yes \
                             -o StrictHostKeyChecking=no \
-                            -R 80:localhost:$PORT serveo.net 2>/tmp/fieldtracker-backup-raw.log &
+                            -R 80:localhost:$PORT serveo.net >/tmp/fieldtracker-backup-raw.log 2>&1 &
                         BACKUP_PID=$!
                         sleep 6
                         NEW_BACKUP_URL=$(grep -o 'https://[a-z0-9-]*\.serveousercontent\.com' /tmp/fieldtracker-backup-raw.log 2>/dev/null | head -1)
@@ -82,6 +130,7 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
                         done
                         if [ -n "$NEW_BACKUP_URL" ]; then
                             # 上报备用隧道到API
+                            TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
                             curl -sf -X POST "$API_BASE/api/v1/tunnel/backup" \
                                 -H "Content-Type: application/json" \
                                 -d "{\"url\":\"$NEW_BACKUP_URL\"}" > /dev/null 2>&1
@@ -108,17 +157,18 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
 fi
 
 # ── 2. 启动新隧道 ──
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 echo "$TIMESTAMP REBUILD — 创建新隧道..." >> "$MONITOR_LOG"
 
 nohup ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
     -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=no \
-    -R 80:localhost:$PORT serveo.net 2>"$TUNNEL_RAW_LOG" &
+    -R 80:localhost:$PORT serveo.net >"$TUNNEL_RAW_LOG" 2>&1 &
 TUNNEL_PID=$!
 echo $TUNNEL_PID > "$TUNNEL_PID_FILE"
 
 # ── 3. 等待隧道建立，提取URL ──
-sleep 6
+sleep 8
 NEW_URL=""
 if [ -f "$TUNNEL_RAW_LOG" ]; then
     # 从日志中提取serveo隧道URL

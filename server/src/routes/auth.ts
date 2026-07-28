@@ -250,15 +250,15 @@ router.post('/forgot-password',
         throw new AppError('AUTH_USER_NOT_FOUND');
       }
 
+      // 清除已使用的短信记录（放在更新密码之前，防止同一resetToken重放攻击）
+      smsStore.delete(phone);
+
       // 更新密码
       const hash = await bcrypt.hash(newPassword, 10);
       await pgPool.query(
         'UPDATE users SET password_hash = $1 WHERE phone = $2',
         [hash, phone],
       );
-
-      // 清除已使用的短信记录
-      smsStore.delete(phone);
 
       res.json({ success: true, message: '密码重置成功，请使用新密码登录' });
     } catch (err) {
@@ -438,14 +438,25 @@ router.post('/register',
 
       const created = newUser.rows[0];
 
-      // 审计日志
-      regLog.push({
-        time: new Date().toISOString(),
-        admin: admin.phone,
-        phone,
-        ip: req.ip || req.socket.remoteAddress || 'unknown',
-      });
-      if (regLog.length > 1000) regLog.splice(0, regLog.length - 1000);
+      // 审计日志 — 写入数据库持久化
+      try {
+        await pgPool.query(
+          `INSERT INTO audit_logs (operator_id, operator_phone, action_type, target_type, target_id, detail, ip_address)
+           VALUES ($1, $2, 'register', 'user', $3, $4, $5)`,
+          [admin.userId, admin.phone, created.id,
+           JSON.stringify({ phone, name: name || phone, role: role || 'employee' }),
+           req.ip || req.socket.remoteAddress || 'unknown']
+        );
+      } catch (_auditErr) {
+        // 审计日志写入失败不阻断注册（降级到内存）
+        regLog.push({
+          time: new Date().toISOString(),
+          admin: admin.phone,
+          phone,
+          ip: req.ip || req.socket.remoteAddress || 'unknown',
+        });
+        if (regLog.length > 1000) regLog.splice(0, regLog.length - 1000);
+      }
 
       res.status(201).json({
         id: created.id,

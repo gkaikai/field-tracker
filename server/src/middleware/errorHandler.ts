@@ -14,6 +14,15 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     return;
   }
 
+  // Multer 文件上传错误（含 fileFilter 拒绝）→ 400
+  if (err.name === 'MulterError' || err.message.startsWith('不支持的文件类型')) {
+    res.status(400).json({
+      code: 'BAD_REQUEST',
+      message: err.message,
+    });
+    return;
+  }
+
   // 未预期的异常 — 记录日志 + 返回详细错误（开发环境）
   const internal = ErrorCodes.INTERNAL_ERROR;
   const isDev = process.env.NODE_ENV !== 'production';
@@ -32,11 +41,16 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   });
 }
 
-/** 脱敏请求体（避免日志泄漏密码/Token） */
+/** 脱敏请求体（避免日志泄漏密码/Token/密钥等敏感字段） */
 function sanitizeBody(body: any): any {
   if (!body) return body;
   const cloned = { ...body };
-  if (cloned.password) cloned.password = '***';
-  if (cloned.token) cloned.token = '***';
+  // 正则匹配任何含 password/secret/token/key 的字段名，不分大小写
+  const sensitiveRegex = /^(.*)?(password|secret|token|key)(.*)?$/i;
+  for (const key of Object.keys(cloned)) {
+    if (sensitiveRegex.test(key) && typeof cloned[key] === 'string') {
+      cloned[key] = '***';
+    }
+  }
   return cloned;
 }

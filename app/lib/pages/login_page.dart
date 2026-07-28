@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../services/location_uploader.dart';
@@ -17,8 +16,8 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController(text: '13800138000');
-  final _passwordController = TextEditingController(text: 'test123456');
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _authService = AuthService();
   bool _loading = false;
 
@@ -39,6 +38,9 @@ class _LoginPageState extends State<LoginPage> {
         _usernameController.text.trim(),
         _passwordController.text,
       );
+
+      // 登录成功后同步更新文件缓存所属用户
+      LocationUploader().setUserId(_authService.userId ?? '');
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');

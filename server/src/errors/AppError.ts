@@ -11,7 +11,7 @@ export class AppError extends Error {
   public readonly statusCode: number;
 
   constructor(errorCode: ErrorCode, customMessage?: string) {
-    const errDef = ErrorCodes[errorCode];
+    const errDef = ErrorCodes[errorCode] || ErrorCodes.INTERNAL_ERROR;
     super(customMessage || errDef.message);
     this.code = errDef.code;
     this.statusCode = getHttpStatus(errorCode);

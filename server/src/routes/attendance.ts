@@ -4,32 +4,13 @@ import { pgPool } from '../config/database';
 import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
 import { AppError } from '../errors/AppError';
 import { validate } from '../middleware/validate';
+import { attendanceCache, MemAttendanceRecord, getMemAttendanceRecords } from '../shared/attendance_cache';
 
 const router = Router();
 router.use(authMiddleware);
 
 // 内存存储（数据库不可用时使用）
-interface MemAttendanceRecord {
-  id: number;
-  user_id: string;
-  type: string;
-  lng: number;
-  lat: number;
-  address: string | null;
-  accuracy: number;
-  photo_url: string | null;
-  wifi_bssid: string | null;
-  device_info: string | null;
-  check_time: string;
-  created_at: string;
-}
-let memAttendanceRecords: MemAttendanceRecord[] = [];
-let memRecordIdSeq = 1;
-
-// 导出给其他模块使用
-export function getMemAttendanceRecords(userId: string): MemAttendanceRecord[] {
-  return memAttendanceRecords.filter(r => r.user_id === userId);
-}
+// Interface and cache moved to ../shared/attendance_cache
 
 // ============================================================
 //  员工打卡
@@ -100,11 +81,38 @@ router.post('/checkin',
 
           // 如果当前规则匹配，记录并继续检查时间
           if (ruleMatch) {
-            // 校验时间范围
+            // 校验时间范围 — 转为分钟数比较（支持跨天规则）
             if (type === 'checkin' && rule.checkin_start && rule.checkin_end) {
+            const now = new Date();
+            const nowMin = now.getHours() * 60 + now.getMinutes();
+            const startParts = rule.checkin_start.split(':').map(Number);
+            const endParts = rule.checkin_end.split(':').map(Number);
+            const startMin = startParts[0] * 60 + (startParts[1] || 0);
+            const endMin = endParts[0] * 60 + (endParts[1] || 0);
+            // 跨天规则（结束时间小于开始时间，如 22:00-06:00）
+            if (endMin < startMin) {
+              if (nowMin >= startMin || nowMin <= endMin) {
+                matchedRule = true;
+                break;
+              }
+            } else if (nowMin >= startMin && nowMin <= endMin) {
+              matchedRule = true;
+              break;
+            }
+            } else if (type === 'checkout' && rule.checkout_start && rule.checkout_end) {
               const now = new Date();
-              const time = now.toTimeString().slice(0, 5);
-              if (time >= rule.checkin_start.slice(0, 5) && time <= rule.checkin_end.slice(0, 5)) {
+              const nowMin = now.getHours() * 60 + now.getMinutes();
+              const startParts = rule.checkout_start.split(':').map(Number);
+              const endParts = rule.checkout_end.split(':').map(Number);
+              const startMin = startParts[0] * 60 + (startParts[1] || 0);
+              const endMin = endParts[0] * 60 + (endParts[1] || 0);
+              // 跨天规则
+              if (endMin < startMin) {
+                if (nowMin >= startMin || nowMin <= endMin) {
+                  matchedRule = true;
+                  break;
+                }
+              } else if (nowMin >= startMin && nowMin <= endMin) {
                 matchedRule = true;
                 break;
               }
@@ -145,7 +153,7 @@ router.post('/checkin',
         // 数据库不可用时降级到内存
         const now = new Date();
         const memRecord: MemAttendanceRecord = {
-          id: memRecordIdSeq++,
+          id: attendanceCache.nextId++,
           user_id: user.userId,
           type,
           lng,
@@ -158,7 +166,7 @@ router.post('/checkin',
           check_time: now.toISOString(),
           created_at: now.toISOString(),
         };
-        memAttendanceRecords.push(memRecord);
+        attendanceCache.records.push(memRecord);
         recordResult = { id: memRecord.id, check_time: memRecord.check_time };
       }
 
@@ -233,7 +241,7 @@ router.get('/records',
       } catch (_dbErr) {
         // 数据库不可用，从内存查询
         const typeFilter = req.query.type as string;
-        const records = memAttendanceRecords
+        const records = attendanceCache.records
           .filter(r => r.user_id === user.userId)
           .filter(r => !typeFilter || r.type === typeFilter)
           .sort((a, b) => b.check_time.localeCompare(a.check_time));
@@ -258,7 +266,7 @@ router.get('/records',
 // ============================================================
 
 // 内存规则存储
-interface Rule { id: number; name: string; startTime: string; endTime: string; radius: number; wifiName: string; }
+interface Rule { id: number; name: string; checkin_start: string; checkin_end: string; radius_meters: number; center_lat: number | null; center_lng: number | null; wifi_ssid: string; }
 const memRules: Rule[] = [];
 let memRuleIdSeq = 1;
 
@@ -302,7 +310,7 @@ router.post('/rules',
       res.status(201).json(result.rows[0]);
     } catch (err) {
       // 数据库不可用——内存回退
-      const rule: Rule = { id: memRuleIdSeq++, name: name || '默认', startTime: req.body.startTime || '09:00', endTime: req.body.endTime || '18:00', radius: req.body.radius || radius_meters || 300, wifiName: wifi_ssid || '' };
+      const rule: Rule = { id: memRuleIdSeq++, name: name || '默认', checkin_start: req.body.checkin_start || req.body.startTime || '09:00', checkin_end: req.body.checkin_end || req.body.endTime || '18:00', radius_meters: radius_meters || req.body.radius || 300, center_lat: center_lat || req.body.center_lat || null, center_lng: center_lng || req.body.center_lng || null, wifi_ssid: wifi_ssid || req.body.wifi_ssid || '' };
       memRules.push(rule);
       res.status(201).json(rule);
     }
@@ -314,13 +322,26 @@ router.put('/rules/:id',
   roleMiddleware('admin'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // 先查现有记录，避免编辑时未传字段被设为NULL
+      const existing = await pgPool.query('SELECT * FROM attendance_rules WHERE id=$1', [req.params.id]);
+      if (existing.rows.length === 0) return res.status(404).json({ code: 'NOT_FOUND', message: '规则不存在' });
+      const cur = existing.rows[0];
       await pgPool.query(
         `UPDATE attendance_rules SET
           name=$1, center_lat=$2, center_lng=$3, radius_meters=$4,
-          checkin_start=$5, checkin_end=$6, wifi_ssid=$7
-         WHERE id=$8`,
-        [req.body.name, req.body.center_lat, req.body.center_lng, req.body.radius_meters || req.body.radius,
-         req.body.checkin_start, req.body.checkin_end, req.body.wifiName || req.body.wifi_ssid, req.params.id],
+          checkin_start=$5, checkin_end=$6, wifi_ssid=$7, wifi_bssid=$8
+         WHERE id=$9`,
+        [
+          'name' in req.body ? req.body.name : cur.name,
+          'center_lat' in req.body ? req.body.center_lat : cur.center_lat,
+          'center_lng' in req.body ? req.body.center_lng : cur.center_lng,
+          'radius_meters' in req.body ? req.body.radius_meters : ('radius' in req.body ? req.body.radius : cur.radius_meters),
+          'checkin_start' in req.body ? req.body.checkin_start : cur.checkin_start,
+          'checkin_end' in req.body ? req.body.checkin_end : cur.checkin_end,
+          'wifi_ssid' in req.body ? req.body.wifi_ssid : ('wifiName' in req.body ? req.body.wifiName : cur.wifi_ssid),
+          'wifi_bssid' in req.body ? req.body.wifi_bssid : cur.wifi_bssid,
+          req.params.id,
+        ],
       );
       const result = await pgPool.query('SELECT * FROM attendance_rules WHERE id=$1', [req.params.id]);
       if (result.rows.length > 0) return res.json(result.rows[0]);

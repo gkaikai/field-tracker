@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:dio/dio.dart';
-import 'dart:convert';
 import '../config/app_config.dart';
-import '../config/amap_key.dart';
 
 /// 忘记密码页面（3步：手机号→验证码→新密码）
 class ForgotPasswordPage extends StatefulWidget {
@@ -53,10 +51,12 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     try {
       final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
       final resp = await dio.get('/api/v1/auth/captcha');
-      if (mounted) setState(() {
-        _captchaToken = resp.data['token'];
-        _captchaSvg = resp.data['svg'];
-      });
+      if (mounted) {
+        setState(() {
+          _captchaToken = resp.data['token'];
+          _captchaSvg = resp.data['svg'];
+        });
+      }
     } catch (_) {}
   }
 
@@ -304,11 +304,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           const SizedBox(height: 8),
           TextField(
             controller: _captchaCtrl,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: '计算结果',
               hintText: '输入计算结果',
-              prefixIcon: const Icon(Icons.calculate_outlined, size: 20),
-              border: const OutlineInputBorder(),
+              prefixIcon: Icon(Icons.calculate_outlined, size: 20),
+              border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.number,
           ),

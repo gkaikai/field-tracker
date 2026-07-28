@@ -1,10 +1,10 @@
 import 'env_config.dart';
-import 'dart:convert' show jsonDecode;
-import 'package:http/http.dart' as http;
+import 'amap_key.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show MethodChannel;
 import '../services/auth_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/remote_config_service.dart' show ServerSelector;
+import '../services/api_service.dart' show ApiService;
 
 /// APP全局配置
 class AppConfig {
@@ -19,85 +19,51 @@ class AppConfig {
 
   /// 初始化 baseUrl（在 main 或 splash 页调用）
   static Future<void> init() async {
-    baseUrl = await EnvConfig.baseUrl;
-    // 恢复备用隧道URL
-    final prefs = await SharedPreferences.getInstance();
-    final savedBackup = prefs.getString('backup_tunnel_url');
-    if (savedBackup != null && savedBackup.isNotEmpty) {
-      backupUrl = savedBackup;
+    final url = await ServerSelector.init();
+    if (url.isNotEmpty) {
+      baseUrl = url;
+    } else {
+      // 全部不通，兜底走本地缓存
+      baseUrl = await EnvConfig.baseUrl;
     }
+    debugPrint('[AppConfig] 初始化完成，baseUrl=$baseUrl');
   }
   
   /// 动态修改服务器地址（用户手动设置）
   static Future<void> setServerUrl(String url) async {
     await EnvConfig.setBaseUrl(url);
     baseUrl = url;
+    ApiService().updateBaseUrl(url);
+    await _passServerConfigToNative();
   }
 
-  /// 从服务器隧道API获取最新隧道URL并自动替换
+  /// 从远程配置刷新隧道地址（后台定时调用）
   static Future<void> refreshTunnelUrl() async {
-    try {
-      final currentBase = baseUrl;
-      final client = http.Client();
-      try {
-        final resp = await client
-            .get(Uri.parse('$currentBase/api/v1/tunnel'))
-            .timeout(const Duration(seconds: 8));
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          final newUrl = data['url'] as String?;
-          final newBackupUrl = data['backup_url'] as String?;
-
-          // 更新备用隧道
-          if (newBackupUrl != null && newBackupUrl.isNotEmpty) {
-            backupUrl = newBackupUrl;
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('backup_tunnel_url', newBackupUrl);
-            debugPrint('[AppConfig] 备用隧道URL已更新: $newBackupUrl');
-          }
-
-          if (newUrl != null && newUrl.isNotEmpty && newUrl != currentBase) {
-            debugPrint('[AppConfig] 隧道URL已变更: $newUrl (原: $currentBase)');
-            baseUrl = newUrl;
-            await EnvConfig.setBaseUrl(newUrl);
-            // 通知ForegroundService更新隧道URL
-            await _passServerConfigToNative();
-          }
-        }
-      } finally {
-        client.close();
-      }
-    } catch (e) {
-      debugPrint('[AppConfig] 隧道刷新失败，尝试备用隧道...');
-      // 主URL不通 → 尝试切换备用
-      await _trySwitchToBackup();
+    await ServerSelector.backgroundRefresh();
+    final newUrl = ServerSelector.currentUrl;
+    if (newUrl.isNotEmpty && newUrl != baseUrl) {
+      debugPrint('[AppConfig] 隧道地址已变更: $newUrl (原: $baseUrl)');
+      baseUrl = newUrl;
+      ApiService().updateBaseUrl(newUrl);
+      await _passServerConfigToNative();
     }
   }
 
-  /// 主URL不通时尝试切换到备用隧道
-  static Future<void> _trySwitchToBackup() async {
-    if (backupUrl == null || backupUrl!.isEmpty) return;
-    if (backupUrl == baseUrl) return;
-
-    try {
-      final client = http.Client();
-      try {
-        final resp = await client
-            .get(Uri.parse('$backupUrl/api/v1/tunnel/health'))
-            .timeout(const Duration(seconds: 5));
-        if (resp.statusCode == 200) {
-          debugPrint('[AppConfig] 备用隧道可用，切换中: $backupUrl');
-          baseUrl = backupUrl!;
-          await EnvConfig.setBaseUrl(backupUrl!);
-          await _passServerConfigToNative();
-          debugPrint('[AppConfig] 已切换到备用隧道: $backupUrl');
-        }
-      } finally {
-        client.close();
-      }
-    } catch (e) {
-      debugPrint('[AppConfig] 备用隧道也不通: $e');
+  /// 请求失败时由 ApiService 调用 — 触发自动切换
+  static Future<String?> onRequestFailed() async {
+    final newUrl = await ServerSelector.onRequestFailed();
+    if (newUrl != null && newUrl.isNotEmpty) {
+      baseUrl = newUrl;
+      ApiService().updateBaseUrl(newUrl);
+      await _passServerConfigToNative();
+      return newUrl;
     }
+    return null;
+  }
+
+  /// 请求成功时调用 — 重置熔断计数
+  static void onRequestSuccess() {
+    ServerSelector.onRequestSuccess();
   }
 
   /// 将最新服务器配置下发到原生ForegroundService
@@ -116,8 +82,9 @@ class AppConfig {
     }
   }
   
-  // 高德地图Key（iOS用Bundle ID绑定，Android用PackageName+SHA1绑定）
-  static const String amapApiKey = '0e00439a3a2b04282e78083ea7a9b19d';
+  // 高德地图Key（通过 AMapConfig 从 --dart-define 编译注入）
+  // 保留此引用仅为兼容旧代码，建议直接使用 AMapConfig
+  static String get amapApiKey => AMapConfig.androidKey;
 
   // ============================================================
   //  定位采集参数
@@ -196,7 +163,8 @@ class AppConfig {
   static const String apiReportLocation = '/api/v1/location/report';
   static const String apiCurrentLocation = '/api/v1/location/current';
   static const String apiBatchLocation = '/api/v1/location/batch';
-  static const String apiTrack = '/api/v1/track';
+  // 不再使用的接口（保留注释供参考）
+  // static const String apiTrack = '/api/v1/track';
   static const String apiCheckin = '/api/v1/attendance/checkin';
   static const String apiAttendanceRecords = '/api/v1/attendance/records';
 }

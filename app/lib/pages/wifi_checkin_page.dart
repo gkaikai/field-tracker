@@ -17,9 +17,8 @@ class WifiCheckinService {
       final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
       await dio.post('/api/v1/attendance/checkin', data: {
         'type': 'checkin',
-        'wifiSsid': ssid,
-        'wifiBssid': bssid,
-        'method': 'wifi',
+        'lng': 0, 'lat': 0,
+        'wifi_bssid': bssid,
       }, options: Options(headers: {'Authorization': 'Bearer $token'}));
       return true;
     } catch (_) { return false; }

@@ -1,7 +1,6 @@
 // 工作汇报页面
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 
 class ReportPage extends StatefulWidget {
@@ -46,7 +45,6 @@ class _ReportPageState extends State<ReportPage> {
   }
 
   Future<void> _createReport() async {
-    final typeCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
     String selectedType = 'daily';
 

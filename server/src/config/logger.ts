@@ -91,18 +91,31 @@ export const logger = winston.createLogger({
 const originalError = logger.error.bind(logger);
 const originalWarn = logger.warn.bind(logger);
 
+// 递归保护标记，防止 sendAlert → logger.error → sendAlert 无限循环
+let _alerting = false;
+
 logger.error = function (msg: string, ...meta: any[]) {
-  if (process.env.NODE_ENV === 'production') {
-    const metaObj = meta[0] || {};
-    sendAlert('critical', `[服务错误] ${msg}`, JSON.stringify(metaObj));
+  if (process.env.NODE_ENV === 'production' && !_alerting) {
+    _alerting = true;
+    try {
+      const metaObj = meta[0] || {};
+      sendAlert('critical', `[服务错误] ${msg}`, JSON.stringify(metaObj));
+    } finally {
+      _alerting = false;
+    }
   }
   return originalError(msg, ...meta);
 } as winston.LeveledLogMethod;
 
 logger.warn = function (msg: string, ...meta: any[]) {
-  if (process.env.NODE_ENV === 'production') {
-    const metaObj = meta[0] || {};
-    sendAlert('warning', `[服务警告] ${msg}`, JSON.stringify(metaObj));
+  if (process.env.NODE_ENV === 'production' && !_alerting) {
+    _alerting = true;
+    try {
+      const metaObj = meta[0] || {};
+      sendAlert('warning', `[服务警告] ${msg}`, JSON.stringify(metaObj));
+    } finally {
+      _alerting = false;
+    }
   }
   return originalWarn(msg, ...meta);
 } as winston.LeveledLogMethod;
