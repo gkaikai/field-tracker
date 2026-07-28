@@ -15,7 +15,7 @@ import { setupHeartbeatWS, stopHeartbeatCheck } from './websocket/heartbeat_ws';
 import { errorHandler } from './middleware/errorHandler';
 import { logger, requestLogger } from './config/logger';
 import { initAlert } from './monitoring/alert';
-import { recordRequest, completeRequest, startMetricsSummary, checkDiskUsage } from './monitoring/metrics';
+import { recordRequest, completeRequest, startMetricsSummary, checkDiskUsage, getMetricsSnapshot } from './monitoring/metrics';
 
 // ============================================================
 // 环境配置加载
@@ -58,7 +58,7 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
   : ['http://localhost:3000', 'http://localhost:*'];
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
+  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : 'http://localhost:3000',
   credentials: true,
 }));
 app.set('trust proxy', 1);  // 让 express-rate-limit 能正确识别代理后的 IP
@@ -152,7 +152,6 @@ app.get('/apk', (req, res) => {
   if (!apkPath) {
     return res.status(404).json({ code: 'APK_NOT_FOUND', message: '暂无APK文件' });
   }
-  const fs = require('fs');
   const stat = fs.statSync(apkPath);
   const fileSize = stat.size;
   const range = req.headers.range;
@@ -197,7 +196,6 @@ app.get('/health', (req, res) => {
 
 // 监控指标端点
 app.get('/metrics', (req: any, res: any) => {
-  const { getMetricsSnapshot } = require('./monitoring/metrics');
   res.json(getMetricsSnapshot());
 });
 

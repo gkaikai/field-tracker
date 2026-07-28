@@ -80,7 +80,7 @@ class _VisitPlanPageState extends State<VisitPlanPage> {
             await dio.post('/api/v1/customers/visit', data: {
               'customerId': selectedCustomerId,
               'content': '【计划】${contentCtrl.text}',
-              'lat': 0, 'lng': 0, 'address': '计划拜访: $selectedCustomerName',
+              'address': '计划拜访: $selectedCustomerName',
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
             if (!ctx.mounted) return;
             Navigator.pop(ctx); _load();

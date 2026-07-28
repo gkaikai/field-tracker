@@ -1,5 +1,9 @@
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { logger } from '../config/logger';
 import { sendAlert, record5xx, recordSlowRequest } from './alert';
+
+const execAsync = promisify(exec);
 
 // ============================================================
 //  基础监控指标收集
@@ -209,12 +213,11 @@ export function stopMetricsSummary(): void {
 // ============================================================
 
 /** 检查磁盘使用率并告警（通过 sendAlert） */
-export function checkDiskUsage(): void {
-  const { execSync } = require('child_process');
+export async function checkDiskUsage(): Promise<void> {
   try {
-    const output = execSync('df -h / | tail -1', { encoding: 'utf-8' });
+    const { stdout } = await execAsync('df -h / | tail -1');
     // 输出格式示例: /dev/disk1s6  466G  380G   86G    82%  /
-    const parts = output.trim().split(/\s+/);
+    const parts = stdout.trim().split(/\s+/);
     const usageStr = parts[parts.length - 2]; // e.g. "82%"
     const usagePercent = parseInt(usageStr.replace('%', ''), 10);
 

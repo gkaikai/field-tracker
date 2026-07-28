@@ -261,6 +261,11 @@ class _MapPageState extends State<MapPage> {
     setState(() => _isLoadingCustomers = true);
     try {
       final resp = await _api.get('/api/v1/customers');
+      if (resp.data is! Map<String, dynamic>) {
+        debugPrint('加载客户标记失败: 返回数据格式异常');
+        if (mounted) setState(() => _isLoadingCustomers = false);
+        return;
+      }
       final data = resp.data as Map<String, dynamic>;
       final list = (data['customers'] as List<dynamic>)
           .cast<Map<String, dynamic>>();

@@ -24,6 +24,8 @@ class LocationUploader {
   void Function()? onAuthError;
 
   final Queue<LocationPoint> _pendingBatch = Queue<LocationPoint>();
+  /// 独立Dio实例（不共享ApiService的Dio）
+  /// ⚠️ 若ApiService的token/baseUrl发生变更，需同步调用 setToken/setBaseUrl 更新此实例
   Dio? _dio;
 
   Timer? _flushTimer;
@@ -139,7 +141,8 @@ class LocationUploader {
   //  批量上传到服务器
   // ============================================================
   Future<bool> _uploadBatch(List<LocationPoint> points) async {
-    if (points.isEmpty || _dio == null) return true;
+    if (points.isEmpty) return true;
+    if (_dio == null) return false;
 
     try {
       final response = await _dio!.post(

@@ -29,7 +29,7 @@ const MAGIC_SIGNATURES: Record<string, Uint8Array[]> = {
   'image/jpeg': [new Uint8Array([0xFF, 0xD8, 0xFF])],
   'image/png': [new Uint8Array([0x89, 0x50, 0x4E, 0x47])],
   'image/gif': [new Uint8Array([0x47, 0x49, 0x46, 0x38])],
-  'image/webp': [new Uint8Array([0x52, 0x49, 0x46, 0x46])], // RIFF....WEBP
+  'image/webp': [new Uint8Array([0x52, 0x49, 0x46, 0x46])], // 运行时动态校验WEBP marker
 };
 
 /// 校验文件前4字节是否匹配预期魔数
@@ -37,11 +37,18 @@ function validateMagicNumber(filePath: string, mimeType: string): boolean {
   try {
     const sigs = MAGIC_SIGNATURES[mimeType];
     if (!sigs) return true; // HEIC/HEIF 跳过魔数校验
-    const buf = Buffer.alloc(4);
+    const maxLen = Math.max(...sigs.map(s => s.length));
+    const buf = Buffer.alloc(maxLen);
     const fd = fs.openSync(filePath, 'r');
-    fs.readSync(fd, buf, 0, 4, 0);
+    fs.readSync(fd, buf, 0, maxLen, 0);
     fs.closeSync(fd);
-    return sigs.some(sig => sig.every((b, i) => b === buf[i]));
+    // 对 WebP 特殊处理：校验 RIFF header + WEBP marker（跳过4字节文件大小）
+  if (mimeType === 'image/webp' && buf.length >= 12) {
+    const isRiff = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
+    const isWebp = buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+    return isRiff && isWebp;
+  }
+  return sigs.some(sig => sig.every((b, i) => b === buf[i]));
   } catch {
     return false;
   }

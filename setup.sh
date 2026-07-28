@@ -50,8 +50,8 @@ else
   echo "  ✓ Key 已配置"
 fi
 
-# 同样替换 Web 管理端的高德 Key
-WEB_KEY_FILE="$PROJECT_ROOT/server/public/index.html"
+# 同样替换 Web 管理端的高德 Key（admin.html）
+WEB_KEY_FILE="$PROJECT_ROOT/server/public/admin.html"
 if grep -q "YOUR_AMAP_KEY" "$WEB_KEY_FILE"; then
   read -p "  输入高德地图 JS API Key (用于Web管理端，可复用上面那个): " web_key
   if [ -n "$web_key" ]; then

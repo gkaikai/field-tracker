@@ -192,7 +192,7 @@ api('GET', '/api/v1/customers', label="6.2 验证数据存在")
 api('POST', '/api/v1/attendance/rules', {'name':'联动规则','startTime':'09:30','endTime':'17:30','radius':200}, label="6.3 创建联动规则")
 api('GET', '/api/v1/attendance/rules', label="6.4 验证规则已创建")
 # 验证客户拜访关联
-r = subprocess.run("curl -s http://localhost:3000/api/v1/customers/visits -H 'Authorization: Bearer $TOKEN'", shell=True, capture_output=True, text=True, timeout=5)
+r = subprocess.run(f"curl -s http://localhost:3000/api/v1/customers/visits -H 'Authorization: Bearer {TOKEN}'", shell=True, capture_output=True, text=True, timeout=5)
 try:
     visits = json.loads(r.stdout)
     if visits.get('total',0) >= 4: print(f"  ✅ 6.5 拜访数据一致性: {visits['total']}条")

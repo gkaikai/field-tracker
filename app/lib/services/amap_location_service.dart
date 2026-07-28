@@ -152,7 +152,7 @@ class AmapLocationService {
 
     // 4. 初始化文件缓存上传器（必须在原生服务启动之前，避免init竞态）
     try {
-      LocationUploader().init();
+      await LocationUploader().init();
       LocationUploader().setUserId(AuthService().userId ?? '');
       LocationUploader().setToken(AuthService().token ?? '');
     } catch (_) {}
@@ -267,6 +267,11 @@ class AmapLocationService {
 
       if (_recentLocations.length == 3) {
         final p2 = _recentLocations[1];
+        if (!p2.containsKey('latitude') || !p2.containsKey('longitude')) {
+          _recentLocations.removeAt(1);
+          _rejectedPositions++;
+          return;
+        }
         if (_isDriftPoint(_recentLocations[0], p2, _recentLocations[2])) {
           final speed = (locationData['speed'] as num?)?.toDouble() ?? 0;
           final disp = _motion.calculateDisplacement(lat, lng);

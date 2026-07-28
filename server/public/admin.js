@@ -429,7 +429,7 @@ function addFenceSearch() {
       };
     });
 
-    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   }
   initFenceSearch();
 }
@@ -656,7 +656,7 @@ async function viewFence(id) {
       if (rv) rv.textContent = f.radiusMeters||300;
       // 移动地图到围栏位置
       if (fenceMap) { fenceMap.setCenter([f.centerLng, f.centerLat]); fenceMap.setZoom(16); }
-    } else if (f.coordinates) {
+    } else if (f.coordinates && f.coordinates.length > 0) {
       f.coordinates.forEach(p => addPolygonPoint(p.lat, p.lng));
       // 移动地图到多边形中心
       if (fenceMap && f.coordinates.length > 0) {
@@ -695,7 +695,7 @@ window.editFence = async function(id) {
       if (rs) rs.value = f.radiusMeters||300;
       if (rv) rv.textContent = f.radiusMeters||300;
       if (fenceMap) { fenceMap.setCenter([f.centerLng, f.centerLat]); fenceMap.setZoom(16); }
-    } else if (f.coordinates) {
+    } else if (f.coordinates && f.coordinates.length > 0) {
       f.coordinates.forEach(p => addPolygonPoint(p.lat, p.lng));
       if (fenceMap && f.coordinates.length > 0) {
         const latAvg = f.coordinates.reduce((s,p) => s + p.lat, 0) / f.coordinates.length;
@@ -703,8 +703,8 @@ window.editFence = async function(id) {
         fenceMap.setCenter([lngAvg, latAvg]); fenceMap.setZoom(15);
       }
     }
-    // 把主保存按钮改为更新模式（不另加小按钮，防止用户误点创建）
-    const mainBtn = document.querySelector('#fenceForm button[onclick*="saveFence"]');
+    // 把主保存按钮改为更新模式
+    const mainBtn = document.querySelector('#fencesContent button[onclick*="saveFence"]');
     if (mainBtn) {
       mainBtn.textContent = '💾 更新';
       mainBtn.onclick = function() { saveFenceEdit(id); };
@@ -733,7 +733,8 @@ async function saveFenceEdit(id) {
 function connectMonitorWS() {
   if (monitorWS) { monitorWS.close(); monitorWS = null; }
   if (!TOKEN) return;
-  const url = `ws://${location.host}${location.pathname === '/admin.html' || location.pathname === '/admin/' ? '/..' : ''}${location.pathname.replace(/\/admin\.html$|\/admin\/?$/, '')}/ws/location?token=${TOKEN}`;
+  const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${wsProtocol}//${location.host}${location.pathname === '/admin.html' || location.pathname === '/admin/' ? '/..' : ''}${location.pathname.replace(/\/admin\.html$|\/admin\/?$/, '')}/ws/location?token=${TOKEN}`;
   const wsUrl = url.replace(/\/+/g, '/').replace(':/', '://');
   try {
     monitorWS = new WebSocket(wsUrl);
@@ -807,7 +808,7 @@ async function loadMonitor() {
       <div id="monitorMap" style="height:400px;border-radius:8px;margin-bottom:12px;border:1px solid #ddd"></div>
       <div id="trackReplayWrap" style="display:none;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:12px;background:white;padding:10px 16px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.04)">
-          <button id="playBtn" onclick="monitorTogglePlay()" style="min-width:80px">▶ 播放</button>
+          <button id="monitorPlayBtn" onclick="monitorTogglePlay()" style="min-width:80px">▶ 播放</button>
           <span>速度:</span>
           ${[0.5,1,2,5,10].map(s => `<button class="speed-btn${s===1?' active':''}" onclick="monitorSetSpeed(${s})" style="min-width:40px;padding:4px 8px">${s}x</button>`).join('')}
           <span id="trackProgress" style="color:#666;font-size:13px;margin-left:auto">0 / 0</span>
@@ -952,7 +953,7 @@ function monitorClearTrack() {
 function monitorTogglePlay() {
   const map = window._monitorMap;
   if (!map || !map._trackPoints || map._trackPoints.length === 0) return;
-  const btn = document.getElementById('playBtn');
+  const btn = document.getElementById('monitorPlayBtn');
   if (map._trackPlaying) {
     map._trackPlaying = false; if (map._trackAnim) { clearInterval(map._trackAnim); map._trackAnim = null; }
     btn.textContent = '▶ 播放'; return;
@@ -966,7 +967,7 @@ function _monitorAnimMove(map) {
   if (!map._trackPlaying) return;
   if (map._trackIdx >= map._trackPoints.length) {
     map._trackPlaying = false; if (map._trackAnim) { clearInterval(map._trackAnim); map._trackAnim = null; }
-    document.getElementById('playBtn').textContent = '▶ 播放'; return;
+    document.getElementById('monitorPlayBtn').textContent = '▶ 播放'; return;
   }
   _updateTrackMarker(map, map._trackIdx);
   map._trackIdx++;
@@ -992,7 +993,7 @@ function monitorSeekTrack(idx) {
   map._trackIdx = idx;
   if (map._trackAnim) { clearInterval(map._trackAnim); map._trackAnim = null; }
   map._trackPlaying = false;
-  const btn = document.getElementById('playBtn');
+  const btn = document.getElementById('monitorPlayBtn');
   if (btn) btn.textContent = '▶ 播放';
   _updateTrackMarker(map, idx);
   const p = map._trackPoints[idx];
@@ -1092,7 +1093,7 @@ async function loadUsers() {
       <h4>添加人员</h4>
       <div class="form-row"><label>姓名</label><input type="text" id="userName" /></div>
       <div class="form-row"><label>手机</label><input type="text" id="userPhone" placeholder="必填" /></div>
-      <div class="form-row"><label>密码</label><input type="text" id="userPwd" value="123456" /></div>
+      <div class="form-row"><label>密码</label><input type="text" id="userPwd" placeholder="留空默认123456" /></div>
       <div class="form-row"><label>角色</label>
         <select id="userRole"><option value="employee">员工</option><option value="manager">经理</option><option value="admin">管理员</option></select></div>
       <button onclick="addUser()">➕ 添加</button><span id="userResult" style="margin-left:12px"></span>
@@ -1105,7 +1106,7 @@ async function loadUsers() {
     const html = list.map(u => `<tr>
       <td>${u.phone||u.userId}</td><td>${u.name||'--'}</td>
       <td><span class="tag ${u.role==='admin'?'tag-red':u.role==='manager'?'tag-blue':'tag-green'}">${u.role||'employee'}</span></td>
-      <td><button onclick="deleteUser('${u.phone||u.userId}')" class="danger" style="padding:4px 10px;font-size:12px">删除</button></td>
+      <td><button onclick="deleteUser('${u.id}')" class="danger" style="padding:4px 10px;font-size:12px">删除</button></td>
     </tr>`).join('');
     el.innerHTML = el.innerHTML.replace('加载中...</td></tr>', html || '<tr><td colspan="4" style="text-align:center;color:#999">暂无</td></tr>');
   } catch(e) { /* uses memory users only */ }
@@ -1127,10 +1128,17 @@ window.addUser = async function() {
     document.getElementById('userResult').innerHTML = '✅ 添加成功';
   } catch(e) { document.getElementById('userResult').innerHTML = `❌ ${e.message}`; }
 };
-window.deleteUser = async function(phone) {
+window.deleteUser = async function(idOrPhone) {
   if (!confirm('确定删除？')) return;
-  try { await api('DELETE', `/api/v1/org/users/${phone}`); loadUsers(); }
-  catch(e) { alert('失败: '+e.message); }
+  try {
+    // 如果传的是手机号，先查询用户的真实UUID
+    const users = await api('GET', '/api/v1/org/users');
+    const list = Array.isArray(users) ? users : (users.users || []);
+    const user = list.find(u => u.phone === idOrPhone || u.id === idOrPhone || u.userId === idOrPhone);
+    if (!user) { alert('未找到用户'); return; }
+    await api('DELETE', `/api/v1/org/users/${user.id}`);
+    loadUsers();
+  } catch(e) { alert('失败: '+e.message); }
 };
 
 // ==================== 打卡规则编辑/删除 ====================
@@ -1343,8 +1351,8 @@ async function loadRules() {
       <table class="data-table"><tr><th>ID</th><th>名称</th><th>上班</th><th>下班</th><th>范围</th><th>操作</th></tr>${
         rules.length===0?'<tr><td colspan="6" style="text-align:center;color:#999">暂无</td></tr>':
         rules.map(r=>`<tr><td>${r.id}</td><td>${r.name}</td><td>${r.checkin_start}</td><td>${r.checkin_end}</td><td>${r.radius_meters}m</td>
-          <td><button onclick="editRule(${r.id})" style="padding:4px 8px;font-size:12px;margin-right:4px">✏️</button>
-          <button onclick="deleteRule(${r.id})" class="danger" style="padding:4px 8px;font-size:12px">🗑️</button></td></tr>`).join('')}</table>`;
+          <td><button onclick="editRule('${r.id}')" style="padding:4px 8px;font-size:12px;margin-right:4px">✏️</button>
+          <button onclick="deleteRule('${r.id}')" class="danger" style="padding:4px 8px;font-size:12px">🗑️</button></td></tr>`).join('')}</table>`;
   } catch(e) { el.innerHTML = `<p style="color:red">加载失败: ${e.message}</p>`; }
 }
 async function saveRule() {

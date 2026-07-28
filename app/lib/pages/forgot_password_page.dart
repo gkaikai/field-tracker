@@ -17,7 +17,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   bool _loading = false;
 
   // Step 1
-  final _phoneCtrl = TextEditingController(text: '13800138000');
+  final _phoneCtrl = TextEditingController();
   String? _phoneError;
   // Step 1 - 拼图验证码
   String? _captchaToken;

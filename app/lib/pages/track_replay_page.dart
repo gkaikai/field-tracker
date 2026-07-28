@@ -23,9 +23,9 @@ class TrackReplayPage extends StatefulWidget {
 }
 
 class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingObserver {
-  // ─── 页面级缓存（进出页面时保留点位，避免每次从零拉取） ───
-  static final Map<String, List<Map<String, dynamic>>> _pointCache = {};
-  static final Map<String, int?> _timestampCache = {};
+  // ─── 页面级缓存（实例级，页面dispose后随GC释放） ───
+  final Map<String, List<Map<String, dynamic>>> _pointCache = {};
+  final Map<String, int?> _timestampCache = {};
   static const int _maxCacheEntries = 10; // 最多缓存10天，超限淘汰最早
 
   final ApiService _api = ApiService();
@@ -60,8 +60,12 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 1. 先用本地GPS显示当前位置（零网络开销，地图build时就能定位）
+    _syncLocationFromService();
+    // 2. 异步拉取轨迹和围栏数据
     _loadTrack();
     _loadFences();
+    // 3. 异步拉取最新位置（如果本地GPS还没数据）
     _fetchCurrentLocation();
     // 每15秒自动刷新轨迹（仅前台有效，省电省流量）
     _autoRefreshTimer = Timer.periodic(

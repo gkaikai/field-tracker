@@ -1,7 +1,7 @@
 // 组织架构管理 — 全DB存储
 import { Router, Request, Response } from 'express';
 import { body } from 'express-validator';
-import { authMiddleware, JwtPayload } from '../middleware/auth';
+import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
 
@@ -46,8 +46,8 @@ router.post('/departments',
   },
 );
 
-// PUT /api/v1/org/departments/:id
-router.put('/departments/:id', async (req: Request, res: Response) => {
+// PUT /api/v1/org/departments/:id — 更新部门（仅管理员）
+router.put('/departments/:id', adminMiddleware, async (req: Request, res: Response) => {
   // 先查现有值，为 in_body 兜底做准备
   const existingResult = await pgPool.query(
     'SELECT name, parent_id, manager_id, description, sort_order FROM departments WHERE id=$1',
@@ -76,8 +76,8 @@ router.put('/departments/:id', async (req: Request, res: Response) => {
   });
 });
 
-// DELETE /api/v1/org/departments/:id
-router.delete('/departments/:id', async (req: Request, res: Response) => {
+// DELETE /api/v1/org/departments/:id — 删除部门（仅管理员）
+router.delete('/departments/:id', adminMiddleware, async (req: Request, res: Response) => {
   const result = await pgPool.query(
     'UPDATE departments SET is_active=false WHERE id=$1 RETURNING id', [req.params.id]
   );
@@ -107,8 +107,8 @@ router.get('/users', async (_req: Request, res: Response) => {
   }
 });
 
-// PUT /api/v1/org/users/:id — 更新用户部门/角色
-router.put('/users/:id', async (req: Request, res: Response) => {
+// PUT /api/v1/org/users/:id — 更新用户部门/角色（仅管理员）
+router.put('/users/:id', adminMiddleware, async (req: Request, res: Response) => {
   try {
     // 先查现有值
     const existing = await pgPool.query('SELECT department_id, role, name FROM users WHERE id=$1', [req.params.id]);
@@ -130,8 +130,8 @@ router.put('/users/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/v1/org/users/:id — 删除用户（使用UUID，非手机号）
-router.delete('/users/:id', async (req: Request, res: Response) => {
+// DELETE /api/v1/org/users/:id — 删除用户（使用UUID，非手机号，仅管理员）
+router.delete('/users/:id', adminMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pgPool.query('UPDATE users SET is_active=false WHERE id = $1 RETURNING id', [req.params.id]);
     if (result.rows.length === 0) return res.status(404).json({ code: '10014', message: '用户不存在' });

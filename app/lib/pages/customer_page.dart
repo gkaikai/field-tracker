@@ -47,6 +47,8 @@ class _CustomerPageState extends State<CustomerPage> {
     // 隐藏的经纬度（搜索选择后自动填充）
     double selectedLat = (existing?['lat'] as num?)?.toDouble() ?? 0;
     double selectedLng = (existing?['lng'] as num?)?.toDouble() ?? 0;
+    // 标签状态
+    List<String> formTags = [];
     Timer? debounce;
 
     showDialog(context: context, builder: (ctx) {
@@ -165,7 +167,7 @@ class _CustomerPageState extends State<CustomerPage> {
               ),
             const SizedBox(height: 8),
             // 标签输入
-            _TagsInput(existing: existing, onTagsChanged: (tags) {}),
+            _TagsInput(existing: existing, onTagsChanged: (tags) { formTags = tags; }),
             const SizedBox(height: 8),
             TextField(controller: ac, decoration: const InputDecoration(labelText: '地址', border: OutlineInputBorder(), helperText: '由地址搜索自动填入，可手动修改'), maxLines: 2),
             const SizedBox(height: 8),
@@ -200,6 +202,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 'address': ac.text,
                 'lat': selectedLat,
                 'lng': selectedLng,
+                'tags': formTags,
                 'remark': remarkCtrl.text,
               };
               try {

@@ -114,7 +114,7 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
                     if [ -z "$BACKUP_URL" ] || ! curl -sf --max-time 5 "$BACKUP_URL/api/v1/tunnel/health" > /dev/null 2>&1; then
                         echo "$TIMESTAMP PREEMPTIVE — 生成备用隧道..." >> "$MONITOR_LOG"
                         # 建立第二个隧道（不同端口的转发，用另一个ssh连接）
-                        nohup ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+                        nohup ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
                             -o ExitOnForwardFailure=yes \
                             -o StrictHostKeyChecking=no \
                             -R 80:localhost:$PORT serveo.net >/tmp/fieldtracker-backup-raw.log 2>&1 &
@@ -160,7 +160,7 @@ fi
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 echo "$TIMESTAMP REBUILD — 创建新隧道..." >> "$MONITOR_LOG"
 
-nohup ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+nohup ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
     -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=no \
     -R 80:localhost:$PORT serveo.net >"$TUNNEL_RAW_LOG" 2>&1 &

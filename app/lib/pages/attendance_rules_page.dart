@@ -4,6 +4,12 @@ import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 
+/// 安全截取字符串前5字符，不足则原样返回
+String _safeSub5(String? val, [String fallback = '']) {
+  final s = val?.toString() ?? fallback;
+  return s.length >= 5 ? s.substring(0, 5) : s;
+}
+
 class AttendanceRulesPage extends StatefulWidget {
   const AttendanceRulesPage({super.key});
   @override
@@ -31,8 +37,8 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
   /// 根据 rule 预填数据创建/编辑对话框
   void _showRuleDialog({Map? existing}) {
     final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
-    final startCtrl = TextEditingController(text: existing != null ? (existing['checkin_start']?.toString() ?? '09:00').substring(0,5) : '09:00');
-    final endCtrl = TextEditingController(text: existing != null ? (existing['checkin_end']?.toString() ?? '18:00').substring(0,5) : '18:00');
+    final startCtrl = TextEditingController(text: existing != null ? _safeSub5(existing['checkin_start']?.toString(), '09:00') : '09:00');
+    final endCtrl = TextEditingController(text: existing != null ? _safeSub5(existing['checkin_end']?.toString(), '18:00') : '18:00');
     final radiusCtrl = TextEditingController(text: (existing?['radius_meters'] ?? 300).toString());
     final latCtrl = TextEditingController(text: existing?['center_lat']?.toString() ?? '');
     final lngCtrl = TextEditingController(text: existing?['center_lng']?.toString() ?? '');
@@ -123,7 +129,7 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                 return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: ListTile(
                   title: Text(r['name'] ?? '未命名'),
                   subtitle: Text(
-                    '${(r['checkin_start']?.toString() ?? '不限').substring(0,5)} - ${(r['checkin_end']?.toString() ?? '不限').substring(0,5)} | 半径${r['radius_meters'] ?? 300}m'
+                    '${_safeSub5(r['checkin_start']?.toString(), '不限')} - ${_safeSub5(r['checkin_end']?.toString(), '不限')} | 半径${r['radius_meters'] ?? 300}m'
                   ),
                   trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                     IconButton(icon: const Icon(Icons.edit, color: Colors.blue),
