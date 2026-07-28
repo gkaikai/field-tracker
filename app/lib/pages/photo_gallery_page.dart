@@ -43,8 +43,9 @@ class _PhotoGalleryPageState extends State<PhotoGalleryPage> {
                 return GestureDetector(
                   onTap: () => showDialog(context: context, builder: (_) => Dialog(
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Image.network(url, fit: BoxFit.contain),
-                      Padding(padding: const EdgeInsets.all(8), child: Text(p['time'] ?? '')),
+                      Image.network(url, fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 64, color: Colors.grey)),
+                      Padding(padding: const EdgeInsets.all(8), child: Text(p['time']?.toString() ?? '')),
                     ]))),
                   child: Image.network(url, fit: BoxFit.cover),
                 );

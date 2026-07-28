@@ -415,6 +415,8 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
       await prefs.setString('device_brand', _brand);
     } catch (e) {
       debugPrint('[PermissionGuide] 保存设置失败: $e');
+    } finally {
+      _onDoneGuard = false;
     }
 
     if (mounted) {

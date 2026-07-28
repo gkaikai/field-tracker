@@ -15,7 +15,8 @@ import '../services/auth_service.dart';
 
 const MethodChannel _channel = MethodChannel('com.fieldtracker/location_service');
 
-/// 定位更新回调 — 原生ForegroundService每3秒上报一次位置
+/// ⚠️ 全局变量：可被任何调用方覆盖，多实例场景下存在竞态风险。
+/// 当前设计中仅由 AmapLocationService 在初始化时赋值一次，不应被其他模块重新赋值。
 void Function(double lat, double lng, double accuracy, double speed, int timestamp)? onNativeLocationUpdate;
 
 /// 启动前台定位服务（通知栏 + WakeLock + 高德AMapLocationClient）
@@ -26,7 +27,7 @@ Future<bool> startBackgroundLocationService() async {
     await _channel.invokeMethod('startService');
     return true;
   } catch (e) {
-    debugPrint('[后台服务] 启动失败: $e');
+    debugPrint('[后台服务] startService 启动失败: $e (type: ${e.runtimeType})');
     return false;
   }
 }

@@ -28,8 +28,22 @@ interface UserTrack {
   points: TrackPoint[];
 }
 
-/** 用户实时位置（key=userId） */
+/** 用户实时位置（key=userId）— ⚠️ 无上限Map，需配合定期清理 */
 const liveLocations = new Map<string, { lng: number; lat: number; accuracy: number; speed: number; timestamp: number; name: string }>();
+
+/**
+ * 定期清理 liveLocations 中超过10分钟无更新的过期条目
+ * 防止长期运行后内存泄漏（虽然用户量小，但作为防御性编程）
+ */
+const LIVE_LOCATIONS_TTL_MS = 10 * 60 * 1000; // 10分钟
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, loc] of liveLocations.entries()) {
+    if (now - loc.timestamp > LIVE_LOCATIONS_TTL_MS) {
+      liveLocations.delete(userId);
+    }
+  }
+}, 5 * 60 * 1000); // 每5分钟扫描一次
 
 /** 历史轨迹（key=userId, 按时间排序）— 内存降级 */
 const trackStore = new Map<string, TrackPoint[]>();

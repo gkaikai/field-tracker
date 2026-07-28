@@ -69,6 +69,12 @@ class _ApprovalPageState extends State<ApprovalPage> {
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
           final messenger = ScaffoldMessenger.of(context);
+          // 简单日期格式校验：YYYY-MM-DD
+          bool isValidDate(String d) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d);
+          if (!showAmount && (!isValidDate(startCtrl.text) || !isValidDate(endCtrl.text))) {
+            messenger.showSnackBar(const SnackBar(content: Text('日期格式无效，请使用 YYYY-MM-DD 格式')));
+            return;
+          }
           try {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             await dio.post('/api/v1/approvals', data: {

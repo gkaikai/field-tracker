@@ -14,8 +14,10 @@ router.post('/',
     body('type').isIn(['leave', 'business_trip', 'expense']).withMessage('类型无效'),
     body('title').notEmpty().withMessage('标题不能为空'),
     body('reason').notEmpty().withMessage('原因不能为空'),
-    body('startDate').notEmpty().withMessage('开始日期不能为空'),
-    body('endDate').notEmpty().withMessage('结束日期不能为空'),
+    body('startDate').notEmpty().withMessage('开始日期不能为空')
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('开始日期格式无效(YYYY-MM-DD)'),
+    body('endDate').notEmpty().withMessage('结束日期不能为空')
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('结束日期格式无效(YYYY-MM-DD)'),
   ]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

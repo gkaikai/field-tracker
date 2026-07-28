@@ -66,7 +66,8 @@ class ApiService {
         }
 
         // 真正成功响应 → 重置熔断计数
-        if (!response.requestOptions.path.contains('/health')) {
+        // 精确匹配/health路径结尾，避免/api/v1/health-xxx等子路径误匹配
+        if (!response.requestOptions.path.endsWith('/health')) {
           AppConfig.onRequestSuccess();
         }
         handler.next(response);

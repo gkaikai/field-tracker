@@ -32,7 +32,7 @@ class _ReportPageState extends State<ReportPage> {
       final data = resp.data as Map<String, dynamic>;
       setState(() {
         _reports = data['reports'] as List<dynamic>;
-        _total = (data['pagination'] as Map)['total'] as int;
+        _total = (data['pagination'] as Map?)?['total'] as int? ?? 0;
       });
     } catch (_) { debugPrint('加载汇报列表失败'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载汇报列表失败'), backgroundColor: Colors.red)); }
     try {

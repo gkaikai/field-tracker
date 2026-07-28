@@ -50,10 +50,13 @@ fi
 # 3. 更新APP版本号 (pubspec.yaml)
 echo "📝 更新版本号到 $VERSION..."
 VERSION_NUM="${VERSION#v}"  # 去掉v前缀
+# 读取当前 build number 并递增
+CURRENT_BUILD=$(grep '^version: ' "$APP_DIR/pubspec.yaml" | sed 's/.*+//')
+NEW_BUILD=$((CURRENT_BUILD + 1))
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' "s/^version: .*/version: $VERSION_NUM+1/" "$APP_DIR/pubspec.yaml"
+  sed -i '' "s/^version: .*/version: $VERSION_NUM+$NEW_BUILD/" "$APP_DIR/pubspec.yaml"
 else
-  sed -i "s/^version: .*/version: $VERSION_NUM+1/" "$APP_DIR/pubspec.yaml"
+  sed -i "s/^version: .*/version: $VERSION_NUM+$NEW_BUILD/" "$APP_DIR/pubspec.yaml"
 fi
 
 # 4. 提交版本号变更

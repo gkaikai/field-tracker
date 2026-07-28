@@ -15,12 +15,24 @@ class OfflineService {
   static const _cacheKey = 'offline_location_cache';
   static const _pendingCheckinKey = 'offline_checkin_cache';
 
+  /// 安全解码 JSON 字符串为 List<Map>，数据损坏时返回空列表
+  List<Map<String, dynamic>> _safeDecodeList(String? jsonStr) {
+    if (jsonStr == null) return [];
+    try {
+      final decoded = json.decode(jsonStr);
+      return (decoded as List).cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('[OfflineService] JSON解码失败（数据可能已损坏）: $e');
+      return [];
+    }
+  }
+
   /// 缓存一条位置记录（无网络时调用）
   Future<void> cacheLocation(double lng, double lat, double speed) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final cache = prefs.getString(_cacheKey);
-      final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+      final list = _safeDecodeList(cache);
       list.add({
         'lng': lng, 'lat': lat, 'speed': speed,
         'timestamp': DateTime.now().toIso8601String(),
@@ -40,7 +52,7 @@ class OfflineService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final cache = prefs.getString(_pendingCheckinKey);
-      final list = cache != null ? (json.decode(cache) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+      final list = _safeDecodeList(cache);
       list.add({ 'type': type, 'lng': lng, 'lat': lat, 'timestamp': DateTime.now().toIso8601String() });
       await prefs.setString(_pendingCheckinKey, json.encode(list));
     } catch (e) {
@@ -55,13 +67,14 @@ class OfflineService {
     if (token == null) return 0;
 
     final prefs = await SharedPreferences.getInstance();
+    // 每次同步创建独立Dio实例，避免与ApiService共享拦截器链（Token刷新/熔断等逻辑可能干扰离线同步）
     final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
     final options = Options(headers: {'Authorization': 'Bearer $token'});
 
     // 同步定位数据（批量提交）
     final locCache = prefs.getString(_cacheKey);
     if (locCache != null) {
-      final list = (json.decode(locCache) as List).cast<Map<String, dynamic>>();
+      final list = _safeDecodeList(locCache);
       // 转换为批量格式：ISO字符串→毫秒时间戳
       final points = list.map((item) => {
         'lng': item['lng'],
@@ -72,7 +85,7 @@ class OfflineService {
             : DateTime.now().millisecondsSinceEpoch,
       }).toList();
       try {
-        await dio.post('/api/v1/location/batch', data: {'points': points}, options: options);
+        await dio.post(AppConfig.apiBatchLocation, data: {'points': points}, options: options);
         synced = points.length;
         await prefs.remove(_cacheKey);
       } catch (_) {
@@ -83,12 +96,12 @@ class OfflineService {
     // 同步打卡数据 — 逐条同步，只清除确已成功的记录
     final checkinCache = prefs.getString(_pendingCheckinKey);
     if (checkinCache != null) {
-      final list = (json.decode(checkinCache) as List).cast<Map<String, dynamic>>();
+      final list = _safeDecodeList(checkinCache);
       final remaining = <Map<String, dynamic>>[];
       int checkinSynced = 0;
       for (final item in list) {
         try {
-          await dio.post('/api/v1/attendance/checkin', data: item, options: options);
+          await dio.post(AppConfig.apiCheckin, data: item, options: options);
           checkinSynced++;
         } catch (_) {
           // 本条同步失败，保留剩余待同步

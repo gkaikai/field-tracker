@@ -32,7 +32,7 @@ class _VisitPlanPageState extends State<VisitPlanPage> {
       final r = await dio.get('/api/v1/customers',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       setState(() { _customers = (r.data['customers'] as List?) ?? []; });
-    } catch (_) {}
+    } catch (e) { debugPrint('加载客户列表失败: $e'); }
   }
 
   void _showPlanDialog() {

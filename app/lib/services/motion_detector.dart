@@ -43,6 +43,7 @@ class MotionDetector {
   DateTime? _uncertainStartTime;
   DateTime? _lowSpeedStartTime;
   DateTime? _stillStartTime;
+  DateTime? _lastAccelEventTime; // 上次收到加速度事件的时间（用于超时判定）
 
   // ─── 监听器 ───
   void Function(MotionState state)? onStateChanged;
@@ -105,6 +106,7 @@ class MotionDetector {
     _stillStartTime = null;
     _recentAccelVariance.clear();
     _personMoving = true;
+    _lastAccelEventTime = null;
   }
 
   // ============================================================
@@ -120,6 +122,7 @@ class MotionDetector {
     );
     final netAccel = (magnitude - 9.8).abs();
 
+    _lastAccelEventTime = DateTime.now();
     _recentAccelVariance.add(netAccel);
     if (_recentAccelVariance.length > AppConfig.accelConsecutiveSamples) {
       _recentAccelVariance.removeAt(0);
@@ -141,7 +144,16 @@ class MotionDetector {
   }
 
   /// 加速度判断是否有振动（人体活动）
-  bool get hasAccelActivity => _personMoving;
+  /// 是否有加速度（人体活动），超时5秒无事件则视为静默
+  bool get hasAccelActivity {
+    if (!_hasAccelerometer) return false;
+    // 超过5秒未收到加速度事件 → 传感器已静默，保守判定为无活动
+    if (_lastAccelEventTime != null &&
+        DateTime.now().difference(_lastAccelEventTime!).inSeconds > 5) {
+      return false;
+    }
+    return _personMoving;
+  }
 
   /// 加速度传感器是否可用
   bool get isAccelerometerAvailable => _hasAccelerometer;
@@ -201,7 +213,7 @@ class MotionDetector {
 
     // ── D) 低速度状态（GPS有信号但速度低） ──
     final bool isLowSpeed = speed != null && speed <= AppConfig.stationarySpeedThreshold;
-    final bool isNoAccel = !_personMoving;
+    final bool isNoAccel = !hasAccelActivity;
     final bool isSmallDisplacement = cumulativeDisplacement < AppConfig.cumulativeStillThreshold;
 
     if (isLowSpeed && isNoAccel && isSmallDisplacement) {
@@ -212,8 +224,8 @@ class MotionDetector {
 
         final elapsed = now.difference(_lowSpeedStartTime!).inSeconds;
         if (elapsed >= AppConfig.uncertainTriggerSec) {
+          _uncertainStartTime = now;
           _transitionTo(MotionState.uncertain);
-          _uncertainStartTime ??= now;
         }
       } else if (_state == MotionState.uncertain) {
         // 已在UNCERTAIN → 检查是否可以进入STATIONARY

@@ -123,7 +123,7 @@ class _LoginPageState extends State<LoginPage> {
           ],
         );
       });
-    });
+    }).then((_) => urlCtrl.dispose());
   }
 
   @override

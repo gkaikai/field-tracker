@@ -216,7 +216,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       radius: 24,
                       backgroundColor: Colors.blue[100],
                       child: Text(
-                        (_auth.userName ?? '?')[0],
+                        ((_auth.userName ?? '?').isNotEmpty ? _auth.userName![0] : '?'),
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue),
                       ),
                     ),

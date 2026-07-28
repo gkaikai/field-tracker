@@ -115,12 +115,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     } on DioException catch (e) {
       final msg = e.response?.data?['message'] ?? '发送失败';
       Fluttertoast.showToast(msg: '❌ $msg', backgroundColor: Colors.red);
-      if (e.response?.statusCode == 429) {
-        // 频率限制，无需刷新
-      } else {
-        _loadCaptcha(); // 其他错误刷新验证码
-        _captchaCtrl.clear();
-      }
+      _loadCaptcha();
+      _captchaCtrl.clear();
     } catch (e) {
       Fluttertoast.showToast(msg: '❌ 发送失败: $e', backgroundColor: Colors.red);
     } finally {

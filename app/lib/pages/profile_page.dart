@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/offline_service.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
+import '../services/api_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -33,11 +32,11 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     setState(() => _loading = true);
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      await dio.post('/api/v1/auth/change-password', data: {
+      ApiService().setToken(_auth.token);
+      await ApiService().post('/api/v1/auth/change-password', data: {
         'oldPassword': _oldPwdCtrl.text,
         'newPassword': _newPwdCtrl.text,
-      }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      });
       setState(() { _msg = '✅ 修改成功'; _oldPwdCtrl.clear(); _newPwdCtrl.clear(); _confirmPwdCtrl.clear(); });
     } catch (e) {
       setState(() => _msg = '❌ 修改失败: $e');
@@ -80,7 +79,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 icon: const Icon(Icons.sync),
                 label: const Text('同步离线数据', style: TextStyle(fontSize: 16)),
                 onPressed: () async {
-                  final svc = OfflineService();
+                  final svc = OfflineService(); // 每次新建实例，避免持有过期数据库引用
                   final count = await svc.offlineCount();
                   if (!context.mounted) return;
                   if (count == 0) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无离线数据需要同步'))); return; }

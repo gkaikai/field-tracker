@@ -41,6 +41,8 @@ class AmapLocationService {
   int _gpsRestartCount = 0;
   DateTime? _gpsRestartResetTime;
   static const int _maxGpsRestarts = 3;        // 每小时最多重建3次
+  /// GPS看门狗 — 重建ForegroundService延迟（防竞态）
+  static const Duration _gpsRestartDelay = Duration(milliseconds: 500);
   static const Duration _gpsRestartWindow = Duration(hours: 1);
 
   // ─── 位置缓存队列 ───
@@ -397,7 +399,7 @@ class AmapLocationService {
     // 重建原生ForegroundService（内含AMapLocationClient重启）
     stopBackgroundLocationService();
     // 等旧实例销毁完成再启动，防止竞态
-    await Future.delayed(const Duration(milliseconds: 500), () {});
+    await Future.delayed(_gpsRestartDelay);
     await startBackgroundLocationService();
     _lastGpsTime = DateTime.now();
   }

@@ -55,7 +55,8 @@ class _AttendancePageState extends State<AttendancePage> {
     if (timestamp == null) return '--';
     try {
       final dt = DateTime.parse(timestamp);
-      const offset = Duration(hours: 8);
+      // 使用设备当前时区偏移，替代硬编码UTC+8
+      final offset = DateTime.now().timeZoneOffset;
       final local = dt.add(offset);
       return '${local.month}/${local.day} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
     } catch (_) {

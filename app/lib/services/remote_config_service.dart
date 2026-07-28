@@ -63,6 +63,8 @@ class RemoteServerConfig {
 /// 服务器选择器 — 负责健康检查、切换、故障转移
 class ServerSelector {
   /// 配置源 URL（唯一硬编码，写死在 APK 里）
+  /// ⚠️ GitHub raw URL 依赖 github.com 可用性，若迁移至私有仓库或自建 CDN 需同步更新此地址
+  /// 建议：后续改为可从云端动态下发的启动配置，消除此硬编码点
   static const String configUrl =
       'https://raw.githubusercontent.com/gkaikai/field-tracker-config/main/config.json';
 

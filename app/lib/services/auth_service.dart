@@ -100,10 +100,11 @@ class AuthService {
       }
 
       _token = data['token'] as String?;
-      // 兼容两种返回格式：{user:{id:...}} 或 {userId:...}
+      // 兼容多种返回格式：{user:{id:...,name:...}}、{userId:...,name:...} 或扁平格式
       _userId = (data['user']?['id'] ?? data['userId'] ?? '').toString();
       _userCode = (data['user']?['userCode'] ?? data['userCode'] ?? '').toString();
-      _userName = (data['user']?['name'] ?? data['name']?.toString()) ?? phone;
+      // 服务端未返回名称时fallback到'用户'，避免在UI层显示手机号造成隐私泄露
+      _userName = (data['user']?['name'] ?? data['name']?.toString()) ?? '用户';
       _department = (data['user']?['department'] ?? data['departmentId']?.toString());
       _role = (data['user']?['role'] ?? data['role']?.toString())?.toString();
 

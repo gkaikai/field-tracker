@@ -11,6 +11,8 @@ let trackPoints = [];
 const TRACK_SPEEDS = [1, 2, 5, 10];
 
 // 从localStorage恢复登录
+// ⚠️ 安全提醒: token 存储在 localStorage 中，若页面被 XSS 攻击可被窃取。
+//    生产环境建议使用 httpOnly Cookie + CSRF Token 方案替代，以降低凭据泄露风险。
 const savedToken = localStorage.getItem('admin_token');
 const _validTabs = ['dashboard','monitor','rules','org','reports','fences','customers','photos','users'];
 if (savedToken) {
@@ -26,6 +28,7 @@ if (savedToken) {
   fetch('/admin-version.json').then(r => r.json()).then(v => {
     const el = document.getElementById('adminVersion');
     if (el) el.textContent = `v${v.version}`;
+    document.title = `外勤定位 v${v.version} - 管理后台`;
   }).catch(() => {});
 } else {
   // 无 token：由 JS 显示登录页（CSS 默认隐藏，避免闪现）
@@ -80,7 +83,7 @@ function showTab(tab) {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   if (tab === 'dashboard') { loadDashboard(); refreshTimer = setInterval(loadDashboard, 15000); }
   if (tab === 'monitor') { loadMonitor(); refreshTimer = setInterval(() => { if (window._monitorMap) refreshMonitor(); else loadMonitor(); }, 30000); }
-  if (tab === 'tracks') { showTab('monitor'); }
+  if (tab === 'tracks') { showTab('monitor'); } // 轨迹回放集成在 monitor 标签页中，故 tracks 实际路由到 monitor
   if (tab === 'rules') loadRules();
   if (tab === 'reports') loadReports();
   if (tab === 'org') loadOrg();
@@ -102,6 +105,8 @@ function showTab(tab) {
 // ========== 高德地图工具 ==========
 
 function makeMap(containerId, center=[113.90, 34.61], zoom=13) {
+  const container = document.getElementById(containerId);
+  if (!container) { console.error('makeMap: 容器 "'+containerId+'" 不存在'); return null; }
   const m = new AMap.Map(containerId, { zoom, center, resizeEnable: true, scrollWheel: true });
   AMap.plugin(['AMap.ToolBar', 'AMap.Scale', 'AMap.PlaceSearch', 'AMap.AutoComplete'], function() {
     m.addControl(new AMap.ToolBar());
@@ -509,6 +514,7 @@ function initFenceMap() {
   try {
     const container = document.getElementById('fenceMapContainer');
     if (!container) { console.warn('initFenceMap: fenceMapContainer 不存在'); return; }
+    // 每次切换到围栏标签时 destroy 重建地图，避免因 tab 切换导致地图容器尺寸/状态异常（高德地图不自动适应隐藏容器）
     if (fenceMap) { fenceMap.destroy(); fenceMap = null; }
     fenceMap = makeMap('fenceMapContainer', [113.90, 34.61], 14);
     addLayerToggle(fenceMap);
@@ -632,6 +638,8 @@ async function saveFence() {
     await loadFences();
     initFenceMap();
     addFenceSearch();
+    // 等待地图完成初始化和 DOM 更新，避免时序竞争导致恢复绘制失败
+    await new Promise(resolve => setTimeout(resolve, 50));
     // 保存后自动显示刚创建的围栏
     if (saved.mode === 'circle' && saved.lat != null) {
       placeCircleCenter(saved.lat, saved.lng);
@@ -1278,7 +1286,11 @@ async function searchTrack() {
     new AMap.Marker({ position: latlngs[0], content: '<div style="background:#52c41a;width:12px;height:12px;border-radius:50%;border:2px solid white"></div>', map: trackMap });
     if (latlngs.length > 1) new AMap.Marker({ position: latlngs[latlngs.length-1], content: '<div style="background:#ff4d4f;width:12px;height:12px;border-radius:50%;border:2px solid white"></div>', map: trackMap });
     const tableHtml = `<table class="data-table"><tr><th>#</th><th>时间</th><th>经度</th><th>纬度</th><th>速度</th></tr>${
-      trackPoints.map((p,i)=>`<tr><td>${i+1}</td><td>${new Date(p.timestamp||p.time).toLocaleString()}</td><td>${(p.lng||0).toFixed(4)}</td><td>${(p.lat||0).toFixed(4)}</td><td>${(p.speed||0).toFixed(1)}</td></tr>`).join('')}</table>`;
+      trackPoints.map((p,i)=>{
+        const t = p.timestamp || p.time;
+        const timeStr = t ? new Date(t).toLocaleString() : '--';
+        return `<tr><td>${i+1}</td><td>${timeStr}</td><td>${(p.lng||0).toFixed(4)}</td><td>${(p.lat||0).toFixed(4)}</td><td>${(p.speed||0).toFixed(1)}</td></tr>`;
+      }).join('')}</table>`;
     document.getElementById('trackTableWrap').innerHTML = tableHtml;
     document.getElementById('trackTimeLabel').textContent = new Date(trackPoints[0].timestamp).toLocaleString();
   } catch(e) { el.innerHTML = `<p style="color:red">查询失败: ${e.message}</p>`; }
@@ -1306,7 +1318,7 @@ function trackAnimMove() {
   document.getElementById('trackTimeLabel').textContent = new Date(p.timestamp).toLocaleString();
   // 更新拖拽条
   const seek = document.getElementById('trackSeek');
-  if (seek && !seek._dragging) { seek.value = trackIdx; }
+  if (seek) { seek.value = trackIdx; }
   const st = document.getElementById('seekTime');
   if (st) st.textContent = new Date(p.timestamp).toLocaleString();
 }

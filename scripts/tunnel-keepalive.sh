@@ -14,7 +14,7 @@ TUNNEL_RAW_LOG="/tmp/fieldtracker-tunnel-raw.log"
 MONITOR_LOG="$HOME/logs/tunnel-monitor.log"
 LIFECYCLE_LOG="$HOME/logs/tunnel-lifecycle.log"
 FAIL_LOG="$HOME/logs/tunnel-failures.log"
-PORT=3000
+PORT=${PORT:-3000}
 API_BASE="http://localhost:$PORT"
 PREEMPTIVE_AGE_THRESHOLD_MIN=720  # 12小时后提前生成备用隧道
 

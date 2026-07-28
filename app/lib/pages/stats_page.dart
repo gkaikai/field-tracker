@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../services/auth_service.dart';
@@ -25,12 +26,13 @@ class _StatsPageState extends State<StatsPage> {
       final attR = await dio.get('/api/v1/attendance/records',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       // 获取轨迹里程
-      final locR = await dio.get('/api/v1/location/track/-1?date=${DateTime.now().toString().substring(0, 10)}',
+      final locR = await dio.get('/api/v1/location/track/-1?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
       // 获取拜访统计
       final visitR = await dio.get('/api/v1/customers/visits',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
 
+      if (!mounted) return;
       setState(() {
         _stats = {
           'attendance': attR.data['pagination']?['total'] ?? attR.data['records']?.length ?? 0,
