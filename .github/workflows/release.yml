@@ -50,7 +50,7 @@ jobs:
         working-directory: app
 
       - name: 构建 Release APK
-        run: flutter build apk --release --dart-define=AMAP_ANDROID_KEY=0e00439a3a2b04282e78083ea7a9b19d --dart-define=AMAP_IOS_KEY= --dart-define=AMAP_WS_KEY=665f6c9959c69f9c08ae1d869d2b7abd
+        run: flutter build apk --debug --dart-define=AMAP_ANDROID_KEY=0e00439a3a2b04282e78083ea7a9b19d --dart-define=AMAP_IOS_KEY= --dart-define=AMAP_WS_KEY=665f6c9959c69f9c08ae1d869d2b7abd
         working-directory: app
 
       - name: 获取版本号
