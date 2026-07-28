@@ -4,7 +4,7 @@
   "_comment": "downloadUrl 和 fastDownloadUrl 当前指向同一地址（gofile.io）。fastDownloadUrl 预留用于未来接入 CDN / 直链加速分发，届时替换为更快的下载源即可。",
   "changelog": "• 围栏编辑与创建完全分离：编辑跳转独立全屏地图编辑页面（fence_edit_page.dart），不共享创建tab状态\n• 圆形围栏编辑：地图点选中心+半径滑块调整\n• 多边形围栏编辑：显示已有顶点、点击添加/撤回\n• 修复搜索坐标解析异常（double.parse→double.tryParse）\n• 修复搜索地址后搜索栏不显示标准化名称\n• 修复滚轮被吞噬问题（EagerGestureRecognizer）\n• 修复搜索建议下拉导致地图触摸丢失",
   "_forceUpdateWarning": "⚠️ 风险: true 会强制所有客户端立即更新，旧版本将无法使用。确认新版本无重大回退问题时再启用。",
-  "forceUpdate": true,
+  "forceUpdate": false,
   "downloadUrl": "https://gofile.io/d/ztE1Q6",
   "fastDownloadUrl": "https://gofile.io/d/ztE1Q6",
   "releaseDate": "2026-07-27"

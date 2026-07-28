@@ -112,7 +112,6 @@ class _FenceEditPageState extends State<FenceEditPage> {
     _nameCtrl.dispose();
     _searchCtrl.dispose();
     _searchDebounce?.cancel();
-    _searchDebounce?.cancel();
     super.dispose();
   }
 
