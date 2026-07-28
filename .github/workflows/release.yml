@@ -30,6 +30,12 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: 安装 Android SDK 35
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-35" "build-tools;35.0.0" 2>/dev/null || true
+          echo "y" | $ANDROID_HOME/tools/bin/sdkmanager --install "platforms;android-35" "build-tools;35.0.0" 2>/dev/null || true
+        shell: bash
+
       - name: 安装依赖
         run: flutter pub get
         working-directory: app
