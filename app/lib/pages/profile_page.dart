@@ -32,7 +32,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     setState(() => _loading = true);
     try {
-      ApiService().setToken(_auth.token);
       await ApiService().post('/api/v1/auth/change-password', data: {
         'oldPassword': _oldPwdCtrl.text,
         'newPassword': _newPwdCtrl.text,
