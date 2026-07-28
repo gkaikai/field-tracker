@@ -91,6 +91,24 @@ export const logger = winston.createLogger({
 const originalError = logger.error.bind(logger);
 const originalWarn = logger.warn.bind(logger);
 
+/** 脱敏对象中的敏感字段（递归处理），防止密码/token/key 泄露到 Webhook */
+function sanitizeMeta(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  const sensitiveRegex = /^(.*)?(password|secret|token|key|authorization|credential|apikey|privatekey)(.*)?$/i;
+  if (Array.isArray(obj)) return obj.map(sanitizeMeta);
+  const cloned: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (sensitiveRegex.test(k) && typeof v === 'string') {
+      cloned[k] = '***';
+    } else if (typeof v === 'object' && v !== null) {
+      cloned[k] = sanitizeMeta(v);
+    } else {
+      cloned[k] = v;
+    }
+  }
+  return cloned;
+}
+
 // 递归保护标记，防止 sendAlert → logger.error → sendAlert 无限循环
 let _alerting = false;
 
@@ -98,7 +116,7 @@ logger.error = function (msg: string, ...meta: any[]) {
   if (process.env.NODE_ENV === 'production' && !_alerting) {
     _alerting = true;
     try {
-      const metaObj = meta[0] || {};
+      const metaObj = sanitizeMeta(meta[0] || {});
       sendAlert('critical', `[服务错误] ${msg}`, JSON.stringify(metaObj));
     } finally {
       _alerting = false;
@@ -111,7 +129,7 @@ logger.warn = function (msg: string, ...meta: any[]) {
   if (process.env.NODE_ENV === 'production' && !_alerting) {
     _alerting = true;
     try {
-      const metaObj = meta[0] || {};
+      const metaObj = sanitizeMeta(meta[0] || {});
       sendAlert('warning', `[服务警告] ${msg}`, JSON.stringify(metaObj));
     } finally {
       _alerting = false;

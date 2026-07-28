@@ -46,8 +46,8 @@ button.active { background: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,0.3);
 .tag-red { background: #fff2f0; color: #ff4d4f; border: 1px solid #ffccc7; }
 .tag-blue { background: #e6f4ff; color: #1677ff; border: 1px solid #91caff; }
 .tab-content { display: none; }
-#dashboard { display: block; }
-.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+#dashboard { display: block; /* 初始由JS控制（admin.js根据登录态显示）*/ }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; aspect-ratio: 4 / 3; }
 .photo-grid img { width: 100%; height: 150px; object-fit: cover; border-radius: 6px; }
 .amap-marker-label { border: none; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
 .map-layer-toggle { position: absolute; bottom: 80px; right: 10px; z-index: 999; background: white; border: 1px solid #d9d9d9; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); user-select: none; }

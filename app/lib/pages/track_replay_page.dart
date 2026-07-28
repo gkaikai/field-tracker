@@ -29,6 +29,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
   static const int _maxCacheEntries = 10; // 最多缓存10天，超限淘汰最早
 
   final ApiService _api = ApiService();
+  final AuthService _auth = AuthService();
 
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> _points = [];
@@ -68,6 +69,13 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     // 3. 异步拉取最新位置（如果本地GPS还没数据）
     _fetchCurrentLocation();
     // 每15秒自动刷新轨迹（仅前台有效，省电省流量）
+    _startAutoRefresh();
+  }
+
+  /// 启动自动刷新定时器（仅在可见时生效）
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    if (!_isForeground) return;
     _autoRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) {
@@ -86,8 +94,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
 
     final dateStr =
         '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-    final auth = AuthService();
-    final userId = auth.userId ?? 'me';
+    final userId = _auth.userId ?? 'me';
     final cacheKey = '$userId|$dateStr';
 
     if (!isAutoRefresh) {
@@ -851,9 +858,14 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     _isForeground = state == AppLifecycleState.resumed;
     // 回到前台立即刷新轨迹，不等下次定时器 tick
     // 当前位置从 AmapLocationService 读取
-    if (!_isForeground || !mounted || _isPlaying) return;
-    _loadTrack(isAutoRefresh: true);
-    _syncLocationFromService();
+    if (_isForeground) {
+      _startAutoRefresh();
+      if (!mounted || _isPlaying) return;
+      _loadTrack(isAutoRefresh: true);
+      _syncLocationFromService();
+    } else {
+      _autoRefreshTimer?.cancel();
+    }
   }
 
   @override

@@ -38,7 +38,9 @@ update_github_config() {
     # 拉取最新（有冲突强制覆盖本地）
     git fetch origin main 2>/dev/null || true
     git reset --hard origin/main 2>/dev/null || true
-    # 更新config.json里的URL（关掉set -e保护，防止python错误导致脚本退出）
+    # 更新config.json里的URL
+    # ⚠️ set +e：后续 python3/json 解析可能因格式错误失败，需要临时关闭 -e 保护，
+    #    避免整个脚本因此退出。set -e 在函数末尾恢复。
     set +e
     local new_version=$(( $(python3 -c "import json;print(json.load(open('config.json')).get('version',0))" 2>/dev/null || echo 0) + 1 ))
     local now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -65,6 +67,7 @@ with open('config.json', 'w') as f:
     else
         echo "$TIMESTAMP GIT_PUSH_FAIL $url" >> "$MONITOR_LOG"
     fi
+    # 恢复 set -e 保护，函数退出后继续使用严格模式
     set -e
 }
 
@@ -111,7 +114,10 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
                 if [ "$AGE" -ge "$PREEMPTIVE_AGE_THRESHOLD_MIN" ]; then
                     # 检查是否已有备用隧道
                     BACKUP_URL=$(curl -sf "$API_BASE/api/v1/tunnel" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('backup_url',''))" 2>/dev/null)
-                    if [ -z "$BACKUP_URL" ] || ! curl -sf --max-time 5 "$BACKUP_URL/api/v1/tunnel/health" > /dev/null 2>&1; then
+                    if [ -z "$BACKUP_URL" ]; then
+                        echo "$TIMESTAMP NO_BACKUP_URL — 无现有备用隧道，准备新建" >> "$MONITOR_LOG"
+                    fi
+                    if [ -z "$BACKUP_URL" ] || ! curl -sf --max-time 5 "${BACKUP_URL}/api/v1/tunnel/health" > /dev/null 2>&1; then
                         echo "$TIMESTAMP PREEMPTIVE — 生成备用隧道..." >> "$MONITOR_LOG"
                         # 建立第二个隧道（不同端口的转发，用另一个ssh连接）
                         nohup ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \

@@ -29,7 +29,7 @@ if (savedToken) {
     const el = document.getElementById('adminVersion');
     if (el) el.textContent = `v${v.version}`;
     document.title = `外勤定位 v${v.version} - 管理后台`;
-  }).catch(() => {});
+  }).catch(e => console.warn('加载版本信息失败:', e));
 } else {
   // 无 token：由 JS 显示登录页（CSS 默认隐藏，避免闪现）
   document.getElementById('loginView').style.display = 'flex';
@@ -46,6 +46,8 @@ async function api(method, path, data) {
     TOKEN = '';
     document.getElementById('loginView').style.display = 'block';
     document.getElementById('mainView').style.display = 'none';
+    // 401 时清空 hash（避免刷新后仍尝试访问原标签页）
+    // 如需保留 URL hash 供重新登录后恢复，可改为注释此行
     window.location.hash = '';
     throw new Error('登录已过期，请重新登录');
   }
@@ -98,6 +100,7 @@ function showTab(tab) {
   if (tab === 'photos') loadPhotos();
   if (tab === 'users') loadUsers();
   // 更新URL hash，刷新回到当前页面，也支持浏览器前进/后退
+  // 重定向映射：某些 tab 名与 URL hash 不同，在此统一管理
   const _tabMap = { tracks: 'monitor' };
   history.replaceState(null, '', '#' + (_tabMap[tab] || tab));
 }
@@ -1085,7 +1088,7 @@ async function loadPhotos() {
             const url = p.url || p.path || '';
             const time = p.time || p.createdAt || '';
             return `<div style="position:relative">
-              <img src="${url}" onerror="this.style.display='none'" />
+              <img src="${url}" onerror="this.alt='加载失败'; this.style.display='none'" />
               <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.5);color:white;padding:6px;font-size:11px">${time}</div>
             </div>`;
           }).join('')}
@@ -1117,7 +1120,7 @@ async function loadUsers() {
       <td><button onclick="deleteUser('${u.id}')" class="danger" style="padding:4px 10px;font-size:12px">删除</button></td>
     </tr>`).join('');
     el.innerHTML = el.innerHTML.replace('加载中...</td></tr>', html || '<tr><td colspan="4" style="text-align:center;color:#999">暂无</td></tr>');
-  } catch(e) { /* uses memory users only */ }
+  } catch(e) { console.warn('loadUsers 请求失败（可能使用内存缓存）:', e); }
 }
 window.addUser = async function() {
   const phone = document.getElementById('userPhone').value.trim();

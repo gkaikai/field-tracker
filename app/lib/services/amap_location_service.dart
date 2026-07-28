@@ -13,6 +13,19 @@ import '../utils/geo_convert.dart' show haversineKm;
 
 /// 高德定位服务 — 使用原生ForegroundService的AMapLocationClient
 ///
+/// # 生命周期
+/// 1. startTracking() → 启动定位追踪
+///    - 检查/请求定位权限
+///    - 启动加速度传感器（MotionDetector）检测运动状态
+///    - 注册原生 ForegroundService 回调接收 GPS 数据
+///    - 初始化文件缓存上传器（LocationUploader）
+///    - 启动原生 ForegroundService（含 AMapLocationClient + WakeLock）
+///    - 启动上传定时器、运动状态检查、GPS 看门狗、隧道 URL 轮询
+/// 2. 运行中：通过 _onLocation 处理定位数据管道
+///    - 精度校验 → 3点滑动中值滤波 → 漂移检测 → 缓冲区排队 → 批量上传
+/// 3. stopTracking() → 停止定位追踪
+///    - 取消所有定时器，清空缓冲区，停止 MotionDetector 和 ForegroundService
+///
 /// 数据流：
 /// 原生ForegroundService (AMapLocationClient) → MethodChannel → Flutter
 /// 

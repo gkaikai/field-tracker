@@ -22,6 +22,9 @@ router.get('/search', async (req: Request, res: Response) => {
     if (!key) {
       return res.status(500).json({ success: false, message: '高德Key未配置' });
     }
+    // ⚠️ 安全风险: key 通过 URL query 参数传递，会被服务器访问日志明文记录。
+    //    生产环境建议确认高德已关闭 access log 的 query 参数记录，或后续改用
+    //    header 方式（高德服务目前仅支持 key 参数，暂无法避免）。
     const url = `https://restapi.amap.com/v3/geocode/geo?key=${key}&address=${encodeURIComponent(address)}&output=JSON`;
     const resp = await fetch(url);
     const data = await resp.json() as any;

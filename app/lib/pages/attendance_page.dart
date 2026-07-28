@@ -45,7 +45,7 @@ class _AttendancePageState extends State<AttendancePage> {
       });
     } catch (e) {
       setState(() {
-        _error = '加载失败: $e';
+        _error = '加载失败，请稍后重试';
         _isLoading = false;
       });
     }

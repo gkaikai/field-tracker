@@ -22,13 +22,16 @@ class _StatsPageState extends State<StatsPage> {
     setState(() => _loading = true);
     try {
       final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      // 获取打卡统计
+      // 1. 打卡统计：获取本月打卡记录总数
+      //    从 attendance/records 接口获取 pagination.total 作为打卡次数
       final attR = await dio.get('/api/v1/attendance/records',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
-      // 获取轨迹里程
+      // 2. 轨迹统计：获取今日轨迹点数
+      //    从 location/track 接口获取 points 数组长度作为轨迹点数
       final locR = await dio.get('/api/v1/location/track/-1?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
-      // 获取拜访统计
+      // 3. 拜访统计：获取总拜访次数
+      //    从 customers/visits 接口获取 total 或 visits 数组长度作为拜访次数
       final visitR = await dio.get('/api/v1/customers/visits',
         options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
 

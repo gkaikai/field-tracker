@@ -209,7 +209,9 @@ class _CustomerPageState extends State<CustomerPage> {
                 if (edit) { await _api.put('/api/v1/customers/${existing['id']}', data: data); }
                 else { await _api.post('/api/v1/customers', data: data); }
                 if (!ctx.mounted) return;
-                Navigator.pop(ctx); _load();
+                await _load();
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
               } catch (e) { if (!ctx.mounted) return; ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${edit?"编辑":"添加"}失败: $e'))); }
             }, child: Text(edit ? '保存' : '添加')),
           ],

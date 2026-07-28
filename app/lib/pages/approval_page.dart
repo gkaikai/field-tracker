@@ -79,7 +79,8 @@ class _ApprovalPageState extends State<ApprovalPage> {
             final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
             await dio.post('/api/v1/approvals', data: {
               'type': selectedType, 'title': titleCtrl.text, 'reason': reasonCtrl.text,
-              'startDate': startCtrl.text, 'endDate': endCtrl.text, 'duration': '1天',
+              'startDate': startCtrl.text, 'endDate': endCtrl.text,
+              'duration': _calcDuration(startCtrl.text, endCtrl.text),
               if (showAmount) 'amount': amountCtrl.text,
               'remark': remarkCtrl.text,
             }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
@@ -91,6 +92,18 @@ class _ApprovalPageState extends State<ApprovalPage> {
         }, child: const Text('提交')),
       ],
     )));
+  }
+
+  /// 根据 startDate/endDate 计算持续时间，如 "2天"
+  String _calcDuration(String start, String end) {
+    try {
+      final s = DateTime.parse(start);
+      final e = DateTime.parse(end);
+      final days = e.difference(s).inDays + 1; // 含首尾
+      return '$days天';
+    } catch (_) {
+      return '1天';
+    }
   }
 
   @override

@@ -19,7 +19,7 @@ class FencePage extends StatefulWidget {
 }
 
 class _FencePageState extends State<FencePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final ApiService _api = ApiService();
   final AuthService _auth = AuthService();
   late TabController _tabController;
@@ -32,6 +32,7 @@ class _FencePageState extends State<FencePage>
   List<Map<String, dynamic>> _events = [];
   bool _eventsLoading = true;
   Timer? _eventsTimer;
+  bool _isForeground = true;
 
   // --- 创建围栏 - map-based state ---
   bool _isCircleMode = true;
@@ -77,6 +78,7 @@ class _FencePageState extends State<FencePage>
     _loadEvents();
     _startEventsAutoRefresh();
     _initLocation();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   /// 初始化地图位置到当前用户所在位置
@@ -111,6 +113,7 @@ class _FencePageState extends State<FencePage>
     _searchCtrl.dispose();
     _eventsTimer?.cancel();
     _tabController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -158,8 +161,20 @@ class _FencePageState extends State<FencePage>
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _isForeground = true;
+      _startEventsAutoRefresh();
+    } else if (state == AppLifecycleState.paused) {
+      _isForeground = false;
+      _eventsTimer?.cancel();
+    }
+  }
+
   void _startEventsAutoRefresh() {
     _eventsTimer?.cancel();
+    if (!_isForeground) return;
     _eventsTimer =
         Timer.periodic(const Duration(seconds: 10), (_) => _loadEvents(silent: true));
   }
@@ -435,7 +450,6 @@ class _FencePageState extends State<FencePage>
         'centerLat': _circleCenter!.latitude,
         'centerLng': _circleCenter!.longitude,
         'radiusMeters': _circleRadius,
-        'departmentId': null,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -484,7 +498,6 @@ class _FencePageState extends State<FencePage>
         'name': name,
         'shapeType': 'polygon',
         'coordinates': coords,
-        'departmentId': null,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

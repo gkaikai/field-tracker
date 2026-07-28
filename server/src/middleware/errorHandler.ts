@@ -41,15 +41,20 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   });
 }
 
-/** 脱敏请求体（避免日志泄漏密码/Token/密钥等敏感字段） */
+/** 脱敏请求体（避免日志泄漏密码/Token/密钥等敏感字段）— 递归处理嵌套对象 */
 function sanitizeBody(body: any): any {
-  if (!body) return body;
-  const cloned = { ...body };
-  // 正则匹配任何含 password/secret/token/key 的字段名，不分大小写
-  const sensitiveRegex = /^(.*)?(password|secret|token|key)(.*)?$/i;
-  for (const key of Object.keys(cloned)) {
-    if (sensitiveRegex.test(key) && typeof cloned[key] === 'string') {
-      cloned[key] = '***';
+  if (!body || typeof body !== 'object') return body;
+  // 覆盖常见敏感字段名：password/secret/token/key/authorization/credential/apikey/privatekey/refreshtoken/accesstoken
+  const sensitiveRegex = /^(.*)?(password|secret|token|key|authorization|credential|apikey|privatekey|refreshtoken|accesstoken)(.*)?$/i;
+  if (Array.isArray(body)) return body.map(sanitizeBody);
+  const cloned: Record<string, any> = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (sensitiveRegex.test(k) && typeof v === 'string') {
+      cloned[k] = '***';
+    } else if (typeof v === 'object' && v !== null) {
+      cloned[k] = sanitizeBody(v);
+    } else {
+      cloned[k] = v;
     }
   }
   return cloned;

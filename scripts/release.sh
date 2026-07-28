@@ -33,6 +33,8 @@ echo "=========================================="
 echo ""
 
 # 1. 检查是否在dev分支
+# ⚠️ 发布前建议先执行测试确保无回归：
+#    flutter test 或 cd app && flutter test
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$BRANCH" != "dev" ]; then
   echo "❌ 请在 dev 分支执行发布 (当前: $BRANCH)"
