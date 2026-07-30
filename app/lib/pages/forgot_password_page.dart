@@ -32,8 +32,12 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     if (_captchaCtrl.text.trim().isEmpty) { Fluttertoast.showToast(msg: '请输入图形验证码', backgroundColor: Colors.orange); return; }
     setState(() => _sending = true);
     try {
-      if (_captchaToken != null) await _api.post('/api/v1/auth/verify-captcha', data: {'token': _captchaToken, 'code': _captchaCtrl.text.trim()});
-      await _api.post('/api/v1/auth/send-code', data: {'phone': _phoneCtrl.text.trim()});
+      // 发送手机号+验证码给后端，由后端在校验验证码后发送短信
+      await _api.post('/api/v1/auth/send-code', data: {
+        'phone': _phoneCtrl.text.trim(),
+        'captchaToken': _captchaToken ?? '',
+        'captchaCode': _captchaCtrl.text.trim(),
+      });
       if (mounted) { setState(() => _step = 1); Fluttertoast.showToast(msg: '验证码已发送', backgroundColor: Colors.green); }
     } catch (e) { Fluttertoast.showToast(msg: '验证失败', backgroundColor: Colors.red); }
     finally { if (mounted) setState(() => _sending = false); }
