@@ -1,6 +1,7 @@
 // 打卡规则页 v3 — 可编辑/可新建/可删除
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/route_guard.dart';
 import '../../theme/app_theme.dart';
 class AttendanceRulesPage extends StatefulWidget {
   const AttendanceRulesPage({super.key});
@@ -16,6 +17,12 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
   @override
   void initState() {
     super.initState();
+    if (!RouteGuard.isAdmin()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      });
+      return;
+    }
     _load();
   }
 

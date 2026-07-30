@@ -96,6 +96,10 @@ export const ErrorCodes = {
   /** 消息不存在 */
   MESSAGE_NOT_FOUND: { code: '30030', message: '消息不存在' },
 
+  // ===== Expense 模块 =====
+  /** 报销记录不存在 */
+  EXPENSE_NOT_FOUND: { code: '30031', message: '报销记录不存在' },
+
   // ===== Attendance Rules 模块 =====
   /** 考勤规则不存在 */
   ATTEND_RULE_NOT_FOUND: { code: '40006', message: '规则不存在' },

@@ -4,6 +4,7 @@ import { body, query, param } from 'express-validator';
 import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
+import { ErrorCodes } from '../errors/errorCodes';
 
 const router = Router();
 router.use(authMiddleware);
@@ -66,7 +67,7 @@ router.put('/:id/status',
         [req.body.status, req.params.id],
       );
       if (result.rows.length === 0) {
-        return res.status(404).json({ code: 'EXPENSE_NOT_FOUND', message: '报销记录不存在' });
+        return res.status(404).json(ErrorCodes.EXPENSE_NOT_FOUND);
       }
       res.json(result.rows[0]);
     } catch (err) {

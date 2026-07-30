@@ -95,9 +95,9 @@ import orgRoutes from './routes/org';
 import geocodeRoutes from './routes/geocode';
 import visitRoutes from './routes/visit';
 import messageRoutes from './routes/message';
+import expenseRoutes from './routes/expense';
 import tunnelRoutes from './routes/tunnel';
 import heartbeatRoutes from './routes/heartbeat';
-import expenseRoutes from './routes/expense';
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/location', locationRoutes);
@@ -112,9 +112,9 @@ app.use('/api/v1/org', orgRoutes);
 app.use('/api/v1/geocode', geocodeRoutes);
 app.use('/api/v1/visits', visitRoutes);
 app.use('/api/v1/messages', messageRoutes);
+app.use('/api/v1/expenses', expenseRoutes);
 app.use('/api/v1/tunnel', tunnelRoutes);
 app.use('/api/v1/heartbeat', heartbeatRoutes);
-app.use('/api/v1/expenses', expenseRoutes);
 
 // 根路径重定向到管理后台
 app.get('/', (req, res) => res.redirect('/admin'));

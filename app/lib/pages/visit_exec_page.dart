@@ -27,7 +27,7 @@ class _VisitExecPageState extends State<VisitExecPage> {
     final loc = AmapLocationService();
     if (loc.currentLat == null) { FTToast.warning(context, '尚未获取到位置'); return; }
     try {
-      await _api.post('/api/v1/visits/checkin', data: {'visitId': visit['id'], 'lat': loc.currentLat, 'lng': loc.currentLng});
+      await _api.post('/api/v1/visits/${visit['id']}/checkin', data: {'visitId': visit['id'], 'lat': loc.currentLat, 'lng': loc.currentLng});
       if (mounted) { FTToast.success(context, '✅ 签到成功'); _load(); }
     } catch (_) { if (mounted) FTToast.error(context, '❌ 签到失败'); }
   }
