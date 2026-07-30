@@ -1,8 +1,9 @@
-/// 骨架屏组件 — 替代 CircularProgressIndicator
+/// 骨架屏组件 — 带 shimmer 动画
 library;
 import 'package:flutter/material.dart';
 
-class FTSkeleton extends StatelessWidget {
+/// 单行骨架屏 — 带 shimmer 渐变动画
+class FTSkeleton extends StatefulWidget {
   final double width;
   final double height;
   final double borderRadius;
@@ -15,27 +16,62 @@ class FTSkeleton extends StatelessWidget {
   });
 
   @override
+  State<FTSkeleton> createState() => _FTSkeletonState();
+}
+
+class _FTSkeletonState extends State<FTSkeleton> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+    _animation = Tween<double>(begin: -1.0, end: 2.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(borderRadius),
-        gradient: LinearGradient(
-          colors: [
-            Colors.grey.shade200,
-            Colors.grey.shade100,
-            Colors.grey.shade200,
-          ],
-          stops: const [0.25, 0.5, 0.75],
-        ),
-      ),
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.borderRadius),
+            gradient: LinearGradient(
+              begin: Alignment(-1 + _animation.value * 1.5, 0),
+              end: Alignment(0 + _animation.value * 1.5, 0),
+              colors: [
+                Colors.grey.shade200,
+                Colors.grey.shade100,
+                Colors.grey.shade50,
+                Colors.grey.shade100,
+                Colors.grey.shade200,
+              ],
+              stops: const [0.0, 0.2, 0.5, 0.8, 1.0],
+            ),
+          ),
+        );
+      },
     );
   }
 }
 
 /// 骨架屏列表项
-class FTSkeletonList extends StatelessWidget {
+class FTSkeletonList extends StatefulWidget {
   final int itemCount;
   final bool hasAvatar;
 
@@ -46,49 +82,85 @@ class FTSkeletonList extends StatelessWidget {
   });
 
   @override
+  State<FTSkeletonList> createState() => _FTSkeletonListState();
+}
+
+class _FTSkeletonListState extends State<FTSkeletonList> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+    _animation = Tween<double>(begin: -1.0, end: 2.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
-      children: List.generate(itemCount, (i) => _buildItem()),
+      children: List.generate(widget.itemCount, (i) => _buildItem()),
     );
   }
 
   Widget _buildItem() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          if (hasAvatar)
-            Container(
-              width: 40, height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.grey.shade200,
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              if (widget.hasAvatar)
+                _shimmerBox(width: 40, height: 40, shape: BoxShape.circle),
+              if (widget.hasAvatar) const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _shimmerBox(width: 160, height: 12),
+                    const SizedBox(height: 8),
+                    _shimmerBox(width: 100, height: 10),
+                  ],
+                ),
               ),
-            ),
-          if (hasAvatar) const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 12, width: 160,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  height: 10, width: 100,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-              ],
-            ),
+            ],
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  Widget _shimmerBox({double width = 40, double height = 40, BoxShape shape = BoxShape.rectangle}) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        shape: shape,
+        borderRadius: shape == BoxShape.rectangle ? BorderRadius.circular(6) : null,
+        gradient: LinearGradient(
+          begin: Alignment(-1 + _animation.value * 1.5, 0),
+          end: Alignment(0 + _animation.value * 1.5, 0),
+          colors: [
+            Colors.grey.shade200,
+            Colors.grey.shade100,
+            Colors.grey.shade50,
+            Colors.grey.shade100,
+            Colors.grey.shade200,
+          ],
+          stops: const [0.0, 0.2, 0.5, 0.8, 1.0],
+        ),
       ),
     );
   }

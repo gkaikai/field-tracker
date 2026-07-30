@@ -32,11 +32,26 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   late int _currentIndex;
   final AuthService _auth = AuthService();
+  int _messageBadge = 0;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _messageBadge = messagesUnreadCount.value;
+    messagesUnreadCount.addListener(_onUnreadChanged);
+  }
+
+  @override
+  void dispose() {
+    messagesUnreadCount.removeListener(_onUnreadChanged);
+    super.dispose();
+  }
+
+  void _onUnreadChanged() {
+    if (mounted) {
+      setState(() => _messageBadge = messagesUnreadCount.value);
+    }
   }
 
   @override
@@ -65,7 +80,7 @@ class _MainShellState extends State<MainShell> {
         items: [
           _navItem(MainTab.workbench, Icons.dashboard),
           _navItem(MainTab.map, Icons.map),
-          _navItem(MainTab.messages, Icons.notifications_outlined, badge: 3),
+          _navItem(MainTab.messages, Icons.notifications_outlined, badge: _messageBadge > 0 ? _messageBadge : null),
           _navItem(MainTab.profile, Icons.person_outline),
         ],
       ),

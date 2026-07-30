@@ -1,5 +1,6 @@
 // 权限引导页 v2
 import 'package:flutter/material.dart';
+import '../utils/device_info.dart';
 
 class PermissionGuidePage extends StatefulWidget {
   const PermissionGuidePage({super.key});
@@ -8,13 +9,26 @@ class PermissionGuidePage extends StatefulWidget {
 }
 
 class _PermissionGuidePageState extends State<PermissionGuidePage> {
-  String _brand = '小米';
+  String _brand = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _detectBrand();
+  }
+
+  Future<void> _detectBrand() async {
+    final brand = await DeviceInfo.getBrand();
+    if (mounted) {
+      setState(() => _brand = brand);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final brands = ['华为', '小米', 'OPPO', 'vivo', '荣耀', '三星', 'Apple'];
     return Scaffold(
-      appBar: AppBar(title: Text('权限设置引导 · $_brand')),
+      appBar: AppBar(title: Text('权限设置引导${_brand.isEmpty ? '' : ' · $_brand'}')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(children: [

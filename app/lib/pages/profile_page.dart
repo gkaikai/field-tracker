@@ -61,7 +61,7 @@ class _ProfilePageState extends State<ProfilePage> {
       });
       setState(() { _msg = '✅ 修改成功'; _oldPwdCtrl.clear(); _newPwdCtrl.clear(); _confirmPwdCtrl.clear(); });
     } catch (e) {
-      setState(() => _msg = '❌ 修改失败');
+      setState(() => _msg = '❌ 修改失败: $e');
     } finally { setState(() => _loading = false); }
   }
 
@@ -102,7 +102,7 @@ class _ProfilePageState extends State<ProfilePage> {
               await Future.delayed(const Duration(seconds: 1));
               if (ctx.mounted) Navigator.pop(ctx);
             } catch (e) {
-              setS(() { _msg = '❌ 修改失败'; _loading = false; });
+              setS(() { _msg = '❌ 修改失败: $e'; _loading = false; });
             }
           }, child: Text(_loading ? '修改中...' : '确认修改')),
         ],

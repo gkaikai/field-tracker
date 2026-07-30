@@ -5,6 +5,9 @@ import '../theme/app_theme.dart';
 import '../widgets/ft_empty_state.dart';
 import 'approval_page.dart';
 
+/// 消息未读数共享状态 — MainShell 监听此值更新底部徽标
+final ValueNotifier<int> messagesUnreadCount = ValueNotifier<int>(0);
+
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
   @override
@@ -15,7 +18,6 @@ class _MessagesPageState extends State<MessagesPage> {
   final ApiService _api = ApiService();
   List _messages = [];
   bool _loading = true;
-  int _unreadCount = 3;
 
   @override
   void initState() {
@@ -27,14 +29,22 @@ class _MessagesPageState extends State<MessagesPage> {
     setState(() => _loading = true);
     try {
       final resp = await _api.get('/api/v1/messages');
+      final msgs = (resp.data['messages'] as List?) ?? [];
+      final unread = msgs.where((m) {
+        if (m is Map) return m['read'] == false;
+        return false;
+      }).length;
+      messagesUnreadCount.value = unread;
       setState(() {
-        _messages = (resp.data['messages'] as List?) ?? [];
+        _messages = msgs;
         _loading = false;
       });
     } catch (_) {
       // 用模拟数据展示 UI
+      final mock = _mockMessages();
+      messagesUnreadCount.value = mock.where((m) => m['read'] == false).length;
       setState(() {
-        _messages = _mockMessages();
+        _messages = mock;
         _loading = false;
       });
     }
