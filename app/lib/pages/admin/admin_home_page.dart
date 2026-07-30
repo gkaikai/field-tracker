@@ -155,6 +155,39 @@ class _AdminHomePageState extends State<AdminHomePage> {
             ),
             const SizedBox(height: 20),
 
+            // 团队实时概览
+            Card(
+              color: const Color(0xFFF5F3FF),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('🟢 在线: 12人', style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                        Text('✅ 签到: 8/15人', style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: 8/15,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7C3AED)),
+                        minHeight: 8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('今日出勤率 53%', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // 管理功能网格
             Expanded(
               child: GridView.count(

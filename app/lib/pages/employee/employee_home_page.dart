@@ -394,8 +394,8 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
               ),
               const SizedBox(height: 16),
 
-              // ======== 功能网格（保留原有全部入口） ========
-              const Text('全部功能',
+              // ======== 常用功能（4个核心入口） ========
+              const Text('常用功能',
                   style: TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
@@ -405,24 +405,8 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: 1.5,
+                childAspectRatio: 2.2,
                 children: [
-                  HomeCard(
-                    icon: Icons.map,
-                    title: '实时地图',
-                    subtitle: '定位 & 打卡',
-                    color: Colors.blue,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const MapPage())),
-                  ),
-                  HomeCard(
-                    icon: Icons.fingerprint,
-                    title: '打卡记录',
-                    subtitle: '查看签到历史',
-                    color: Colors.green,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const AttendancePage())),
-                  ),
                   HomeCard(
                     icon: Icons.route,
                     title: '我的轨迹',
@@ -432,12 +416,12 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                         MaterialPageRoute(builder: (_) => const TrackReplayPage())),
                   ),
                   HomeCard(
-                    icon: Icons.camera_alt,
-                    title: '水印相机',
-                    subtitle: '拍照带水印',
-                    color: Colors.purple,
+                    icon: Icons.business,
+                    title: '拜访记录',
+                    subtitle: '今日拜访客户',
+                    color: Colors.deepOrange,
                     onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const WatermarkCameraPage())),
+                        MaterialPageRoute(builder: (_) => const VisitExecPage())),
                   ),
                   HomeCard(
                     icon: Icons.photo_library,
@@ -446,30 +430,6 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                     color: Colors.pink,
                     onTap: () => Navigator.push(context,
                         MaterialPageRoute(builder: (_) => const PhotoGalleryPage())),
-                  ),
-                  HomeCard(
-                    icon: Icons.assignment,
-                    title: '工作汇报',
-                    subtitle: '日报/周报',
-                    color: Colors.teal,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const ReportPage())),
-                  ),
-                  HomeCard(
-                    icon: Icons.approval,
-                    title: '审批',
-                    subtitle: '请假/出差申请',
-                    color: Colors.red,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const ApprovalPage())),
-                  ),
-                  HomeCard(
-                    icon: Icons.receipt_long,
-                    title: '费用报销',
-                    subtitle: '提交报销/里程',
-                    color: Colors.indigo,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const ExpensePage())),
                   ),
                   HomeCard(
                     icon: Icons.person,
