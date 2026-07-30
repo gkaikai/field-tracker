@@ -279,8 +279,6 @@ class _FenceEditPageState extends State<FenceEditPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_isCircle ? '编辑圆形围栏' : '编辑多边形围栏'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
