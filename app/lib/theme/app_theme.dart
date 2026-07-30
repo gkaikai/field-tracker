@@ -151,6 +151,7 @@ class FieldTrackerTheme {
     appBarTheme: const AppBarTheme(
       elevation: 0,  // 阴影放到 scrolledUnder 控制
       centerTitle: false,
+      backgroundColor: FTColors.primary, // 蓝色底 + 白色字/图标
       titleTextStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
       iconTheme: IconThemeData(color: Colors.white),
     ),

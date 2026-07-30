@@ -18,7 +18,7 @@ import '../approval_page.dart';
 import '../attendance_rules_page.dart';
 import '../photo_gallery_page.dart';
 import 'employee_management_page.dart';
-import '../employee/employee_dashboard_page.dart';
+import '../employee/employee_home_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class AdminHomePage extends StatefulWidget {
@@ -75,11 +75,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.person),
-            tooltip: '查看我的数据',
+            tooltip: '切换到员工视角',
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const EmployeeDashboardPage()),
+                MaterialPageRoute(builder: (_) => const EmployeeHomePage()),
               );
             },
           ),
@@ -241,8 +241,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsPage())),
                   ),
                   HomeCard(
-                    icon: Icons.person, title: '我的数据', subtitle: '查看员工视角信息', color: Colors.grey,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeDashboardPage())),
+                    icon: Icons.person, title: '员工视角', subtitle: '查看员工工作台', color: Colors.grey,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeHomePage())),
                   ),
                 ],
               ),

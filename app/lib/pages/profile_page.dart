@@ -1,5 +1,6 @@
 // 个人中心页面
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../services/amap_location_service.dart';
@@ -20,7 +21,22 @@ class _ProfilePageState extends State<ProfilePage> {
   final _confirmPwdCtrl = TextEditingController();
   bool _loading = false;
   String? _msg;
-  String _appVersion = '1.0.49+62';
+  String _appVersion = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  void _loadVersion() async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _appVersion = '${pkg.version}+${pkg.buildNumber}');
+    } catch (_) {
+      // ignore: silently fall back to empty
+    }
+  }
 
   @override
   void dispose() {

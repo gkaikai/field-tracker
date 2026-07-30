@@ -34,6 +34,7 @@ class _ClockPageState extends State<ClockPage> {
   String? _checkinTime;
   String? _checkoutTime;
   Timer? _gpsTimer;
+  Timer? _clockTimer;
   String _currentTime = '';
 
   @override
@@ -47,12 +48,13 @@ class _ClockPageState extends State<ClockPage> {
   @override
   void dispose() {
     _gpsTimer?.cancel();
+    _clockTimer?.cancel();
     super.dispose();
   }
 
   void _updateClock() {
     // 每秒更新时钟显示
-    Timer.periodic(const Duration(seconds: 1), (_) {
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() {
           final now = DateTime.now();
