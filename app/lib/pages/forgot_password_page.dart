@@ -1,6 +1,7 @@
 // 忘记密码页 v2
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../services/api_service.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
@@ -97,7 +98,12 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   Widget _step1() => Column(children: [
     TextField(controller: _phoneCtrl, decoration: const InputDecoration(labelText: '手机号', border: OutlineInputBorder(), prefixIcon: Icon(Icons.phone_android)), keyboardType: TextInputType.phone, maxLength: 11),
-    const SizedBox(height: 20),
+    const SizedBox(height: 12),
+    if (_captchaSvg != null) ...[
+      Container(height: 80, padding: const EdgeInsets.all(4), decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(8)),
+        child: SvgPicture.string(_captchaSvg!, fit: BoxFit.contain)),
+      const SizedBox(height: 8),
+    ],
     TextField(controller: _captchaCtrl, decoration: const InputDecoration(labelText: '图形验证码', border: OutlineInputBorder(), prefixIcon: Icon(Icons.shield)),
       maxLength: 4, keyboardType: TextInputType.number),
     const SizedBox(height: 24),
