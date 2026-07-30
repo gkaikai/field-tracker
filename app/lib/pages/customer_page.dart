@@ -59,9 +59,23 @@ class _CustomerPageState extends State<CustomerPage> {
             if (v.length < 3) { setS(() { showSug = false; suggestions = []; }); return; }
             debounce = Timer(const Duration(milliseconds: 400), () async {
               try {
-                final resp = await _api.get('/api/v1/geo/search', query: {'keywords': v, 'city': '', 'offset': '5'});
-                final List<dynamic>? pois = resp.data['pois'];
-                if (pois != null) setS(() { suggestions = pois.cast<Map<String, dynamic>>(); showSug = true; });
+                final resp = await ApiService.amapDio.get(
+                  'https://restapi.amap.com/v3/assistant/inputtips',
+                  queryParameters: {'key': AMapConfig.webServiceKey, 'keywords': v.trim(), 'output': 'JSON'},
+                );
+                final tips = (resp.data['tips'] as List?) ?? [];
+                setS(() {
+                  suggestions = tips.map((t) {
+                    final m = t as Map<String, dynamic>;
+                    return <String, dynamic>{
+                      'name': (m['name'] ?? '').toString(),
+                      'address': (m['address'] ?? '').toString(),
+                      'location': (m['location'] ?? '').toString(),
+                      'district': (m['district'] ?? '').toString(),
+                    };
+                  }).toList();
+                  showSug = suggestions.isNotEmpty;
+                });
               } catch (_) {}
             });
           },
@@ -72,7 +86,7 @@ class _CustomerPageState extends State<CustomerPage> {
               itemBuilder: (_, i) { final s = suggestions[i]; return ListTile(dense: true,
                 title: Text(s['name'] ?? '', style: const TextStyle(fontSize: 13)),
                 subtitle: Text(s['address'] ?? '', style: const TextStyle(fontSize: 11)),
-                onTap: () { searchCtrl.text = s['name'] ?? ''; selectedLat = (s['lat'] as num?)?.toDouble() ?? 0; selectedLng = (s['lng'] as num?)?.toDouble() ?? 0; setS(() { showSug = false; }); },
+                onTap: () { searchCtrl.text = s['name'] ?? ''; final loc = s['location']?.toString() ?? ''; if (loc.contains(',')) { final parts = loc.split(','); selectedLng = double.tryParse(parts[0]) ?? 0; selectedLat = double.tryParse(parts[1]) ?? 0; } setS(() { showSug = false; }); },
               );},
             ),
           ),
