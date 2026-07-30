@@ -37,8 +37,14 @@ class _ExpensePageState extends State<ExpensePage> {
     }
     setState(() => _submitting = true);
     try {
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) { setState(() => _submitting = false); FTToast.success(context, '✅ 报销已提交，等待审批'); }
+      _api.post('/api/v1/expenses', data: {
+        'title': _titleCtrl.text,
+        'amount': double.tryParse(_amountCtrl.text) ?? 0,
+        'note': _noteCtrl.text,
+      }).then((_) {
+        if (mounted) { setState(() => _submitting = false); FTToast.success(context, '✅ 报销已提交'); _load(); _titleCtrl.clear(); _amountCtrl.clear(); _noteCtrl.clear(); }
+      }).catchError((_) {
+        if (mounted) { setState(() => _submitting = false); FTToast.error(context, '❌ 提交失败'); }
       });
     } catch (_) { if (mounted) { setState(() => _submitting = false); FTToast.error(context, '❌ 提交失败'); }}
   }

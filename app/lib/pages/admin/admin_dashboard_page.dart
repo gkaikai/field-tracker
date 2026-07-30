@@ -97,31 +97,52 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   }
 
   Widget _buildTeamList() {
-    final mockTeam = [
-      {'name': '张三', 'status': '✅ 08:28', 'color': const Color(0xFF16A34A), 'bg': const Color(0xFFF0FDF4)},
-      {'name': '李四', 'status': '✅ 08:30', 'color': const Color(0xFF16A34A), 'bg': const Color(0xFFF0FDF4)},
-      {'name': '王五', 'status': '⏰ 09:05', 'color': const Color(0xFFF59E0B), 'bg': const Color(0xFFFFFBEB)},
-      {'name': '赵六', 'status': '❌ 未签到', 'color': const Color(0xFFDC2626), 'bg': const Color(0xFFFEF2F2)},
-    ];
+    // 从 API 获取团队状态，如果后端暂无接口则展示提示
+    if (_teamStatus.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+        child: Center(
+          child: Column(children: [
+            Icon(Icons.people_outline, size: 40, color: Colors.grey.shade300),
+            const SizedBox(height: 8),
+            Text('暂无团队数据', style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+          ]),
+        ),
+      );
+    }
+    // 使用从 API 获取的团队状态数据
     return Container(
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
-      child: Column(children: mockTeam.map((m) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-        child: Row(children: [
-          Container(width: 32, height: 32,
-            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), shape: BoxShape.circle),
-            child: Center(child: Text((m['name'] as String)[0], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2563EB)))),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(m['name'] as String, style: const TextStyle(fontSize: 14))),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: m['bg'] as Color, borderRadius: BorderRadius.circular(6)),
-            child: Text(m['status'] as String, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: m['color'] as Color)),
-          ),
-        ]),
-      )).toList()),
+      child: Column(children: _teamStatus.map((m) {
+        final name = m['name']?.toString() ?? '员工';
+        final checkedIn = m['checkedIn'] == true;
+        final time = m['checkinTime']?.toString() ?? '';
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+          child: Row(children: [
+            Container(width: 32, height: 32,
+              decoration: BoxDecoration(color: const Color(0xFFEFF6FF), shape: BoxShape.circle),
+              child: Center(child: Text(name.isNotEmpty ? name[0] : '?', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2563EB)))),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(name, style: const TextStyle(fontSize: 14))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: checkedIn ? const Color(0xFFDCFCE7) : const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                checkedIn ? '✅ ${time.isNotEmpty ? time : "已签到"}' : '❌ 未签到',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500,
+                  color: checkedIn ? const Color(0xFF16A34A) : const Color(0xFFDC2626)),
+              ),
+            ),
+          ]),
+        );
+      }).toList()),
     );
   }
 }

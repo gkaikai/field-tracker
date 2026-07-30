@@ -148,12 +148,13 @@ class FieldTrackerTheme {
     ),
 
     // AppBar
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       elevation: 0,  // 阴影放到 scrolledUnder 控制
       centerTitle: false,
-      backgroundColor: FTColors.primary, // 蓝色底 + 白色字/图标
-      titleTextStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
-      iconTheme: IconThemeData(color: Colors.white),
+      backgroundColor: FTColors.primary,
+      foregroundColor: Colors.white,
+      titleTextStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+      iconTheme: const IconThemeData(color: Colors.white),
     ),
 
     // 卡片
