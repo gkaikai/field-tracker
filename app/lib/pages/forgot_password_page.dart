@@ -30,6 +30,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _step1Verify() async {
     if (_phoneCtrl.text.length != 11) { Fluttertoast.showToast(msg: '请输入正确的手机号', backgroundColor: Colors.red); return; }
     if (_captchaCtrl.text.trim().isEmpty) { Fluttertoast.showToast(msg: '请输入图形验证码', backgroundColor: Colors.orange); return; }
+    if (_captchaToken == null || _captchaToken!.isEmpty) { Fluttertoast.showToast(msg: '图形验证码加载失败，请刷新页面重试', backgroundColor: Colors.orange); return; }
     setState(() => _sending = true);
     try {
       // 发送手机号+验证码给后端，由后端在校验验证码后发送短信
