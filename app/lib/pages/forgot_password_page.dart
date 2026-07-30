@@ -17,6 +17,47 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final _captchaCtrl = TextEditingController();
   final _api = ApiService();
   int _step = 0; bool _sending = false; bool _resetting = false;
+  String? _captchaToken; String? _captchaSvg;
+
+  @override
+  void initState() { super.initState(); _loadCaptcha(); }
+
+  Future<void> _loadCaptcha() async {
+    try { final r = await _api.get('/api/v1/auth/captcha'); _captchaToken = r.data['token']; _captchaSvg = r.data['svg']; } catch (_) {}
+  }
+
+  Future<void> _step1Verify() async {
+    if (_phoneCtrl.text.length != 11) { Fluttertoast.showToast(msg: '请输入正确的手机号', backgroundColor: Colors.red); return; }
+    if (_captchaCtrl.text.trim().isEmpty) { Fluttertoast.showToast(msg: '请输入图形验证码', backgroundColor: Colors.orange); return; }
+    setState(() => _sending = true);
+    try {
+      if (_captchaToken != null) await _api.post('/api/v1/auth/verify-captcha', data: {'token': _captchaToken, 'code': _captchaCtrl.text.trim()});
+      await _api.post('/api/v1/auth/send-code', data: {'phone': _phoneCtrl.text.trim()});
+      if (mounted) { setState(() => _step = 1); Fluttertoast.showToast(msg: '验证码已发送', backgroundColor: Colors.green); }
+    } catch (e) { Fluttertoast.showToast(msg: '验证失败', backgroundColor: Colors.red); }
+    finally { if (mounted) setState(() => _sending = false); }
+  }
+
+  Future<void> _step2Verify() async {
+    if (_codeCtrl.text.length != 6) { Fluttertoast.showToast(msg: '请输入6位验证码', backgroundColor: Colors.orange); return; }
+    setState(() => _sending = true);
+    try {
+      await _api.post('/api/v1/auth/verify-code', data: {'phone': _phoneCtrl.text.trim(), 'code': _codeCtrl.text.trim()});
+      if (mounted) setState(() => _step = 2);
+    } catch (e) { Fluttertoast.showToast(msg: '验证失败', backgroundColor: Colors.red); }
+    finally { if (mounted) setState(() => _sending = false); }
+  }
+
+  Future<void> _step3Reset() async {
+    if (_pwdCtrl.text.length < 6) { Fluttertoast.showToast(msg: '密码至少6位', backgroundColor: Colors.orange); return; }
+    if (_pwdCtrl.text != _confirmCtrl.text) { Fluttertoast.showToast(msg: '两次密码不一致', backgroundColor: Colors.orange); return; }
+    setState(() => _resetting = true);
+    try {
+      await _api.post('/api/v1/auth/forgot-password', data: {'phone': _phoneCtrl.text.trim(), 'code': _codeCtrl.text.trim(), 'password': _pwdCtrl.text});
+      if (mounted) { Fluttertoast.showToast(msg: '密码重置成功，请重新登录', backgroundColor: Colors.green); Navigator.pop(context); }
+    } catch (e) { Fluttertoast.showToast(msg: '重置失败', backgroundColor: Colors.red); }
+    finally { if (mounted) setState(() => _resetting = false); }
+  }
 
   @override
   void dispose() {
@@ -61,7 +102,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       maxLength: 4, keyboardType: TextInputType.number),
     const SizedBox(height: 24),
     SizedBox(width: double.infinity, height: 48, child: ElevatedButton(
-      onPressed: _sending ? null : () { setState(() => _step = 1); },
+      onPressed: _sending ? null : _step1Verify,
       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
       child: const Text('下一步', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
     )),
@@ -77,7 +118,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     ]),
     const SizedBox(height: 24),
     SizedBox(width: double.infinity, height: 48, child: ElevatedButton(
-      onPressed: () => setState(() => _step = 2),
+      onPressed: _sending ? null : _step2Verify,
       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
       child: const Text('下一步', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
     )),
@@ -89,7 +130,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     TextField(controller: _confirmCtrl, obscureText: true, decoration: const InputDecoration(labelText: '确认新密码', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock))),
     const SizedBox(height: 24),
     SizedBox(width: double.infinity, height: 48, child: ElevatedButton(
-      onPressed: _resetting ? null : () {},
+      onPressed: _resetting ? null : _step3Reset,
       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
       child: const Text('重置密码', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
     )),
