@@ -1,164 +1,92 @@
-// 拍照水印页面
-
+// 水印相机 v2 — 底部操作栏分步
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
-
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 
 class WatermarkCameraPage extends StatefulWidget {
   final void Function(String photoUrl)? onPhotoTaken;
-
   const WatermarkCameraPage({super.key, this.onPhotoTaken});
-
   @override
   State<WatermarkCameraPage> createState() => _WatermarkCameraPageState();
 }
 
 class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
-  CameraController? _controller;
-  List<CameraDescription>? _cameras;
-  bool _isReady = false;
-  bool _isProcessing = false;
-  bool _isUploading = false;
-  String? _lastPhotoPath;
-  String? _lastPhotoUploadUrl;
-
-  double? _currentLat;
-  double? _currentLng;
-  String _address = '';
-  String _currentTime = '';
+  CameraController? _controller; List<CameraDescription>? _cameras;
+  bool _isReady = false, _isProcessing = false, _isUploading = false;
+  String? _lastPhotoPath, _lastPhotoUploadUrl;
+  double? _currentLat, _currentLng;
+  String _address = '', _currentTime = '';
   final AuthService _auth = AuthService();
 
   @override
   void initState() {
     super.initState();
     _currentTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-    _initCamera();
-    _getLocation();
+    _initCamera(); _getLocation();
   }
+
+  @override
+  void dispose() { _controller?.dispose(); super.dispose(); }
 
   Future<void> _getLocation() async {
     final loc = AmapLocationService();
-    // 如果定位服务未启动，尝试启动
-    if (!loc.isRunning) {
-      await loc.startTracking();
-      // 等待一小段时间让定位获取首次数据
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-
+    if (!loc.isRunning) await loc.startTracking();
     if (loc.currentLat != null && loc.currentLng != null) {
-      if (mounted) {
-        setState(() {
-          _currentLat = loc.currentLat;
-          _currentLng = loc.currentLng;
-          _address = '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}';
-        });
-      }
-      return;
+      if (mounted) setState(() { _currentLat = loc.currentLat; _currentLng = loc.currentLng; _address = '${loc.currentLat!.toStringAsFixed(4)}, ${loc.currentLng!.toStringAsFixed(4)}'; });
     }
-    // 还没有定位数据，监听一次回调
-    loc.onLocationChanged = (lat, lng, accuracy, speed) {
-      if (mounted) {
-        setState(() {
-          _currentLat = lat;
-          _currentLng = lng;
-          _address = '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
-        });
-      }
-      loc.onLocationChanged = null; // 取到一次就取消
-    };
   }
 
   Future<void> _initCamera() async {
-    try {
-      _cameras = await availableCameras();
-      if (_cameras == null || _cameras!.isEmpty) return;
-      final camera = _cameras!.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-        orElse: () => _cameras!.first,
-      );
-      _controller = CameraController(camera, ResolutionPreset.high);
-      await _controller!.initialize();
-      if (mounted) setState(() => _isReady = true);
-    } catch (e) {
-      debugPrint('Camera init error: $e');
-    }
+    try { _cameras = await availableCameras(); if (_cameras == null || _cameras!.isEmpty) return;
+      _controller = CameraController(_cameras![0], ResolutionPreset.high);
+      await _controller!.initialize(); if (mounted) setState(() => _isReady = true);
+    } catch (e) { debugPrint('相机初始化失败: $e'); }
   }
 
   Future<void> _takePhoto() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isProcessing) return;
+    if (_controller == null || !_controller!.value.isInitialized) return;
     setState(() => _isProcessing = true);
-
     try {
       final xFile = await _controller!.takePicture();
-      final now = DateTime.now();
-      _currentTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
-
-      final watermarkedPath = await _addWatermark(xFile.path);
-      if (mounted) {
-        setState(() {
-          _lastPhotoPath = watermarkedPath ?? xFile.path;
-          _isProcessing = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Take photo error: $e');
-      if (mounted) setState(() => _isProcessing = false);
-    }
+      final path = await _addWatermark(xFile.path);
+      if (path != null) setState(() { _lastPhotoPath = path; _isProcessing = false; });
+    } catch (e) { setState(() => _isProcessing = false); }
   }
 
   Future<String?> _addWatermark(String imagePath) async {
     try {
       final original = img.decodeImage(await File(imagePath).readAsBytes());
       if (original == null) return null;
-
-      final drawable = img.Image.from(original);
-      final w = drawable.width;
-      final h = drawable.height;
-
-      final userName = _auth.userName ?? '用户';
-      final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-      final addrStr = _address;
-
-      final fontSize = (w / 30).round().clamp(16, 48);
-      final barHeight = (h * 0.12).round();
+      final w = original.width; final h = original.height;
+      final fontSize = (h * 0.035).round().clamp(14, 36);
+      final font = fontSize > 20 ? img.arial24 : img.arial14;
+      final barHeight = (h * 0.08).round().clamp(30, 80);
+      final drawable = img.copyResize(original, width: w);
+      final dateStr = DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
+      final addrStr = _address.isNotEmpty ? _address : '${_currentLat?.toStringAsFixed(4) ?? ""}, ${_currentLng?.toStringAsFixed(4) ?? ""}';
+      final userName = _auth.userName ?? '';
 
       // 底部半透明黑条
-      _fillRect(drawable, 0, h - barHeight, w, barHeight,
-          img.ColorRgba8(0, 0, 0, 160));
-
-      // 顶部半透明黑条
-      final topBarHeight = (h * 0.06).round();
-      _fillRect(drawable, 0, 0, w, topBarHeight, img.ColorRgba8(0, 0, 0, 140));
-
+      for (int py = h - barHeight; py < h && py < drawable.height; py++) {
+        for (int px = 0; px < w && px < drawable.width; px++) {
+          drawable.setPixelRgba(px, py, 0, 0, 0, 160);
+        }
+      }
       // 写文字
-      final font = img.arial24;
-      // 顶部：应用名
-      img.drawString(drawable, '外勤定位',
-          font: font, x: fontSize ~/ 2, y: 4,
-          color: img.ColorRgba8(255, 255, 255, 255));
-
-      // 底部：时间
-      img.drawString(drawable, dateStr,
-          font: font, x: fontSize ~/ 2, y: h - barHeight + 8,
-          color: img.ColorRgba8(255, 255, 255, 255));
-      // 底部：位置和用户名
-      img.drawString(drawable, '$addrStr  |  $userName',
-          font: font, x: fontSize ~/ 2, y: h - barHeight + 8 + fontSize + 4,
-          color: img.ColorRgba8(255, 255, 255, 255));
+      img.drawString(drawable, '外勤定位', font: font, x: fontSize ~/ 2, y: h - barHeight + 8, color: img.ColorRgba8(255, 255, 255, 255));
+      img.drawString(drawable, '$dateStr  $addrStr', font: font, x: fontSize ~/ 2, y: h - barHeight + 8 + fontSize + 2, color: img.ColorRgba8(255, 255, 255, 255));
+      img.drawString(drawable, userName, font: font, x: fontSize ~/ 2, y: h - barHeight + 8 + (fontSize + 2) * 2, color: img.ColorRgba8(255, 255, 255, 255));
 
       final pngBytes = img.encodePng(drawable);
       final outDir = await getTemporaryDirectory();
-      final outPath =
-          '${outDir.path}/wm_${DateTime.now().millisecondsSinceEpoch}.png';
+      final outPath = '${outDir.path}/wm_${DateTime.now().millisecondsSinceEpoch}.png';
       await File(outPath).writeAsBytes(pngBytes);
       return outPath;
     } catch (e) {
@@ -167,244 +95,86 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
     }
   }
 
-  void _fillRect(
-      img.Image image, int x, int y, int w, int h, img.ColorRgba8 color) {
-    for (int py = y; py < y + h && py < image.height; py++) {
-      for (int px = x; px < x + w && px < image.width; px++) {
-        image.setPixelRgba(px, py, color.r, color.g, color.b, color.a);
-      }
-    }
-  }
-
   Future<void> _uploadPhoto() async {
     if (_lastPhotoPath == null) return;
     setState(() => _isUploading = true);
-
     try {
       final file = File(_lastPhotoPath!);
       final formData = FormData.fromMap({
-        'photo': await MultipartFile.fromFile(file.path,
-            filename:
-                'wm_${DateTime.now().millisecondsSinceEpoch}.png'),
-        'lat': _currentLat ?? 0,
-        'lng': _currentLng ?? 0,
-        'address': _address,
+        'photo': await MultipartFile.fromFile(file.path, filename: 'wm_${DateTime.now().millisecondsSinceEpoch}.png'),
+        'lat': _currentLat ?? 0, 'lng': _currentLng ?? 0, 'address': _address,
       });
-
-      final resp =
-          await ApiService().uploadFile('/api/v1/upload/photo', formData);
-      final data = resp.data as Map<String, dynamic>;
-      final url = data['url'] as String?;
-
+      final resp = await ApiService().uploadFile('/api/v1/upload/photo', formData);
+      final url = resp.data['url'] as String?;
       if (mounted && url != null) {
         setState(() => _lastPhotoUploadUrl = url);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('水印照片上传成功'), backgroundColor: Colors.green),
-        );
         widget.onPhotoTaken?.call(url);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('上传失败'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
+      debugPrint('Upload error: $e');
+    } finally { if (mounted) setState(() => _isUploading = false); }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('拍照水印'),
-        actions: [
-          if (_lastPhotoPath != null && _lastPhotoUploadUrl == null)
-            TextButton.icon(
-              onPressed: _isUploading ? null : _uploadPhoto,
-              icon: _isUploading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.cloud_upload, color: Colors.white),
-              label: Text(_isUploading ? '上传中...' : '上传',
-                  style: const TextStyle(color: Colors.white)),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 相机/照片预览
-          Expanded(
-            child:
-                _lastPhotoPath != null ? _buildPhotoPreview() : _buildCamera(),
-          ),
-
-          // 位置信息
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.grey[900],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('📅 $_currentTime',
-                    style:
-                        const TextStyle(color: Colors.white, fontSize: 13)),
-                const SizedBox(height: 4),
-                Text('📍 $_address',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12)),
-              ],
-            ),
-          ),
-
-          // 操作按钮
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            color: Colors.black,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                if (_lastPhotoPath != null)
-                  Column(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.cached,
-                            color: Colors.white, size: 32),
-                        onPressed: () => setState(() {
-                          _lastPhotoPath = null;
-                          _lastPhotoUploadUrl = null;
-                        }),
+      appBar: AppBar(title: const Text('水印拍照'), actions: [
+        if (_lastPhotoPath != null && _lastPhotoUploadUrl == null)
+          TextButton.icon(onPressed: _uploadPhoto, icon: _isUploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.upload, color: Colors.white), label: const Text('上传', style: TextStyle(color: Colors.white))),
+      ]),
+      body: Column(children: [
+        // Camera preview / photo preview
+        Expanded(
+          child: _lastPhotoPath != null
+              ? Stack(children: [
+                  Image.file(File(_lastPhotoPath!), fit: BoxFit.contain, width: double.infinity, height: double.infinity),
+                  Positioned(bottom: 8, left: 8, right: 8,
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          GestureDetector(onTap: () => setState(() { _lastPhotoPath = null; _lastPhotoUploadUrl = null; }), child: const Icon(Icons.refresh, color: Colors.white, size: 18)),
+                          const SizedBox(width: 16),
+                          GestureDetector(onTap: _uploadPhoto, child: const Icon(Icons.check_circle, color: Colors.green, size: 22)),
+                        ]),
                       ),
-                      const Text('重拍',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 11)),
-                    ],
-                  )
-                else
-                  const SizedBox(width: 60),
-
-                GestureDetector(
-                  onTap: _isProcessing || _isUploading
-                      ? null
-                      : (_lastPhotoPath == null
-                          ? _takePhoto
-                          : () => _uploadPhoto().then((_) {
-                                if (mounted) Navigator.pop(context);
-                              })),
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color:
-                          _lastPhotoPath == null ? Colors.white : Colors.green,
-                      border:
-                          Border.all(color: Colors.white30, width: 4),
-                    ),
-                    child: Center(
-                      child: _isProcessing || _isUploading
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : Icon(
-                              _lastPhotoPath == null
-                                  ? Icons.camera_alt
-                                  : Icons.check,
-                              color: _lastPhotoPath == null
-                                  ? Colors.black87
-                                  : Colors.white,
-                              size: 32,
-                            ),
-                    ),
+                    ]),
                   ),
-                ),
-
-                if (_lastPhotoPath == null &&
-                    _cameras != null &&
-                    _cameras!.length > 1)
-                  Column(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.flip_camera_android,
-                            color: Colors.white, size: 32),
-                        onPressed: _switchCamera,
-                      ),
-                      const Text('翻转',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 11)),
-                    ],
-                  )
-                else
-                  const SizedBox(width: 60),
-              ],
-            ),
-          ),
-        ],
-      ),
+                ])
+              : _controller != null && _controller!.value.isInitialized
+                  ? CameraPreview(_controller!)
+                  : const Center(child: Text('相机初始化中...', style: TextStyle(color: Colors.grey))),
+        ),
+        // Bottom action bar
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(color: Colors.grey.shade900, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            _actionBtn(Icons.camera_alt, '拍照', _isReady && !_isProcessing ? _takePhoto : null),
+            const SizedBox(width: 40),
+            _actionBtn(Icons.flip_camera_android, '翻转', () async {
+              if (_cameras == null || _cameras!.length < 2) return;
+              final idx = _cameras!.indexWhere((c) => c.lensDirection != _controller!.description.lensDirection);
+              if (idx < 0) return;
+              await _controller?.dispose();
+              _controller = CameraController(_cameras![idx], ResolutionPreset.high);
+              await _controller!.initialize();
+              if (mounted) setState(() {});
+            }),
+          ]),
+        ),
+      ]),
     );
   }
 
-  Widget _buildCamera() {
-    if (!_isReady) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return CameraPreview(_controller!);
-  }
-
-  Widget _buildPhotoPreview() {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.file(File(_lastPhotoPath!), fit: BoxFit.contain),
-        Positioned(
-          top: 0, left: 0, right: 0,
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            color: Colors.black87,
-            child: const Text('外勤定位',
-                style: TextStyle(color: Colors.white, fontSize: 16)),
-          ),
-        ),
-        Positioned(
-          bottom: 0, left: 0, right: 0,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.black87,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('📅 $_currentTime',
-                    style: const TextStyle(color: Colors.white, fontSize: 14)),
-                Text('📍 $_address',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 13)),
-              ],
-            ),
-          ),
-        ),
-      ],
+  Widget _actionBtn(IconData icon, String label, VoidCallback? onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(children: [
+        Container(width: 52, height: 52, decoration: BoxDecoration(shape: BoxShape.circle, color: onTap != null ? Colors.white : Colors.grey.shade700),
+          child: Icon(icon, color: onTap != null ? Colors.black87 : Colors.grey, size: 22)),
+        const SizedBox(height: 6),
+        Text(label, style: TextStyle(fontSize: 11, color: onTap != null ? Colors.white70 : Colors.grey)),
+      ]),
     );
-  }
-
-  void _switchCamera() {
-    if (_cameras == null || _cameras!.length < 2) return;
-    final lens = _controller?.description.lensDirection ==
-            CameraLensDirection.back
-        ? CameraLensDirection.front
-        : CameraLensDirection.back;
-    final desc = _cameras!.firstWhere((c) => c.lensDirection == lens);
-    _controller = CameraController(desc, ResolutionPreset.high);
-    _controller!.initialize().then((_) {
-      if (mounted) setState(() {});
-    });
   }
 }

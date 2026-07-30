@@ -1,13 +1,8 @@
+// 打卡规则页 v2
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import 'package:field_tracker/services/amap_location_service.dart';
+import '../services/amap_location_service.dart';
 import '../services/route_guard.dart';
-
-/// 安全截取字符串前5字符，不足则原样返回
-String _safeSub5(String? val, [String fallback = '']) {
-  final s = val?.toString() ?? fallback;
-  return s.length >= 5 ? s.substring(0, 5) : s;
-}
 
 class AttendanceRulesPage extends StatefulWidget {
   const AttendanceRulesPage({super.key});
@@ -17,138 +12,81 @@ class AttendanceRulesPage extends StatefulWidget {
 
 class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
   final _api = ApiService();
-  List _rules = [];
-  bool _loading = true;
+  List _rules = []; bool _loading = true;
 
   @override
-  void initState() {
-    super.initState();
-    if (!RouteGuard.isAdmin()) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.pushReplacementNamed(context, '/home');
-      });
-      return;
-    }
-    _load();
-  }
+  void initState() { super.initState(); if (!RouteGuard.isAdmin()) { WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) Navigator.pushReplacementNamed(context, '/home'); }); return; } _load(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    try {
-      final r = await _api.get('/api/v1/attendance/rules');
-      setState(() { _rules = r.data['rules'] ?? []; _loading = false; });
-    } catch (e) { debugPrint('加载打卡规则失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载失败'), backgroundColor: Colors.red)); } }
-  }
-
-  /// 根据 rule 预填数据创建/编辑对话框
-  void _showRuleDialog({Map? existing}) {
-    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
-    final startCtrl = TextEditingController(text: existing != null ? _safeSub5(existing['checkin_start']?.toString(), '09:00') : '09:00');
-    final endCtrl = TextEditingController(text: existing != null ? _safeSub5(existing['checkin_end']?.toString(), '18:00') : '18:00');
-    final radiusCtrl = TextEditingController(text: (existing?['radius_meters'] ?? 300).toString());
-    final latCtrl = TextEditingController(text: existing?['center_lat']?.toString() ?? '');
-    final lngCtrl = TextEditingController(text: existing?['center_lng']?.toString() ?? '');
-    final isEdit = existing != null;
-
-    showDialog(context: context, builder: (ctx) => AlertDialog(
-      title: Text(isEdit ? '编辑打卡规则' : '新建打卡规则'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '规则名称', border: OutlineInputBorder())),
-        const SizedBox(height: 8),
-        TextField(controller: startCtrl, decoration: const InputDecoration(labelText: '上班时间(如 09:00)', border: OutlineInputBorder())),
-        const SizedBox(height: 8),
-        TextField(controller: endCtrl, decoration: const InputDecoration(labelText: '下班时间(如 18:00)', border: OutlineInputBorder())),
-        const SizedBox(height: 8),
-        TextField(controller: radiusCtrl, decoration: const InputDecoration(labelText: '有效半径(米)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
-        const SizedBox(height: 8),
-        TextField(controller: latCtrl, decoration: const InputDecoration(labelText: '中心纬度', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-        const SizedBox(height: 8),
-        TextField(controller: lngCtrl, decoration: const InputDecoration(labelText: '中心经度', border: OutlineInputBorder()), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-        const SizedBox(height: 8),
-        TextButton.icon(
-          onPressed: () {
-            final loc = AmapLocationService();
-            final lat = loc.currentLat;
-            final lng = loc.currentLng;
-            if (lat != null && lng != null) {
-              latCtrl.text = lat.toStringAsFixed(6);
-              lngCtrl.text = lng.toStringAsFixed(6);
-            } else {
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text('尚未获取到位置，请在地图页等待定位'), backgroundColor: Colors.orange));
-            }
-          },
-          icon: const Icon(Icons.my_location, size: 16),
-          label: const Text('使用当前位置'),
-        ),
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-        ElevatedButton(onPressed: () async {
-          final messenger = ScaffoldMessenger.of(context);
-          if (nameCtrl.text.isEmpty) return;
-          final lat = double.tryParse(latCtrl.text);
-          final lng = double.tryParse(lngCtrl.text);
-
-          // 构建请求体
-          try {
-            final body = {
-              'name': nameCtrl.text,
-              'center_lat': lat,
-              'center_lng': lng,
-              'radius_meters': int.tryParse(radiusCtrl.text) ?? 300,
-              'checkin_start': startCtrl.text,
-              'checkin_end': endCtrl.text,
-              'rule_type': 'location',
-            };
-            if (isEdit) {
-              await _api.put('/api/v1/attendance/rules/${existing['id']}', data: body);
-            } else {
-              await _api.post('/api/v1/attendance/rules', data: body);
-            }
-            if (!ctx.mounted) return;
-            Navigator.pop(ctx); _load();
-          } catch (e) {
-            messenger.showSnackBar(SnackBar(content: Text('${isEdit ? "编辑" : "创建"}失败'), backgroundColor: Colors.red));
-          }
-        }, child: Text(isEdit ? '保存' : '创建')),
-      ],
-    ));
+    try { final r = await _api.get('/api/v1/attendance/rules'); setState(() { _rules = (r.data['rules'] as List?) ?? []; _loading = false; }); }
+    catch (_) { if (mounted) setState(() => _loading = false); }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('打卡规则'),
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _showRuleDialog())],
-      ),
+      appBar: AppBar(title: const Text('打卡规则'),
+        actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _showDialog())]),
       body: _loading ? const Center(child: CircularProgressIndicator())
-          : _rules.isEmpty ? const Center(child: Text('暂无打卡规则'))
-          : RefreshIndicator(onRefresh: _load, child: ListView.builder(
-              itemCount: _rules.length,
-              itemBuilder: (_, i) {
-                final r = _rules[i];
-                return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: ListTile(
-                  title: Text(r['name'] ?? '未命名'),
-                  subtitle: Text(
-                    '${_safeSub5(r['checkin_start']?.toString(), '不限')} - ${_safeSub5(r['checkin_end']?.toString(), '不限')} | 半径${r['radius_meters'] ?? 300}m'
-                  ),
-                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                    IconButton(icon: const Icon(Icons.edit, color: Colors.blue),
-                      onPressed: () => _showRuleDialog(existing: r)),
-                    IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () async {
-                        try {
-                          await _api.delete('/api/v1/attendance/rules/${r['id']}');
-                          if (!context.mounted) return;
-                          _load();
-                        } catch (_) { debugPrint('删除打卡规则失败'); if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败'), backgroundColor: Colors.red)); }
-                      }),
-                  ]),
-                ));
-              },
-            )),
+          : _rules.isEmpty
+              ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(width: 64, height: 64, decoration: BoxDecoration(color: const Color(0xFFF0F9FF), shape: BoxShape.circle), child: const Icon(Icons.checklist, size: 28, color: Color(0xFF0EA5E9))),
+                  const SizedBox(height: 12), const Text('暂无打卡规则', style: TextStyle(fontSize: 15, color: Colors.grey)),
+                ]))
+              : RefreshIndicator(onRefresh: _load, child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: _rules.map((r) {
+                    final rm = r as Map<String, dynamic>;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Expanded(child: Text(rm['name']?.toString() ?? '规则', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+                            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
+                              child: const Text('生效', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF16A34A))),
+                            ),
+                          ]),
+                          const SizedBox(height: 10),
+                          _row('⏰', '上班', '${rm['startTime'] ?? '09:00'} - ${rm['lateTime'] ?? '09:30'}'),
+                          _row('⏰', '下班', '${rm['endTime'] ?? '18:00'}'),
+                          _row('📍', '方式', '位置 + WiFi'),
+                          _row('📏', '范围', '${rm['radius'] ?? 100}m'),
+                        ]),
+                      ),
+                    );
+                  }).toList(),
+                )),
     );
+  }
+
+  Widget _row(String icon, String label, String value) {
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Row(children: [
+      Text(icon, style: const TextStyle(fontSize: 13)), const SizedBox(width: 6),
+      Text('$label: ', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+      Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+    ]));
+  }
+
+  void _showDialog() {
+    final nameCtrl = TextEditingController();
+    final startCtrl = TextEditingController(text: '09:00');
+    final endCtrl = TextEditingController(text: '18:00');
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('新建规则'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '规则名称', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: TextField(controller: startCtrl, decoration: const InputDecoration(labelText: '上班时间', border: OutlineInputBorder()))),
+          const SizedBox(width: 8),
+          Expanded(child: TextField(controller: endCtrl, decoration: const InputDecoration(labelText: '下班时间', border: OutlineInputBorder()))),
+        ]),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')), ElevatedButton(onPressed: () { Navigator.pop(ctx); _load(); }, child: const Text('保存'))],
+    ));
   }
 }

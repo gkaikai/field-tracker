@@ -1,82 +1,70 @@
-/// 管理员员工模式页面 — 管理员可查看自己的员工数据
-library;
+// 员工数据页 v2
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
-import '../../widgets/home_card.dart';
-import '../map_page.dart';
-import '../attendance_page.dart';
-import '../track_replay_page.dart';
-import '../watermark_camera_page.dart';
-import '../report_page.dart';
-import '../approval_page.dart';
+import '../../services/api_service.dart';
+import '../../theme/app_theme.dart';
 
-class EmployeeDashboardPage extends StatelessWidget {
+class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
+  @override
+  State<EmployeeDashboardPage> createState() => _EmployeeDashboardPageState();
+}
+
+class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
+  final AuthService _auth = AuthService();
+  Map<String, dynamic> _data = {};
+  bool _loading = true;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final resp = await ApiService().get('/api/v1/attendance/my-status');
+      if (mounted) setState(() { _data = resp.data as Map<String, dynamic>; _loading = false; });
+    } catch (_) { if (mounted) setState(() => _loading = false); }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final auth = AuthService();
+    final isAdmin = _auth.isAdmin;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的工作台'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: Colors.green[100],
-                      child: Text(
-                        ((auth.userName ?? '?').isNotEmpty ? auth.userName![0] : '?'),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${auth.userName ?? ""}（管理员视角）',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                        Text('查看自己的数据', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                      ],
-                    ),
-                  ],
+      appBar: AppBar(title: const Text('我的工作台')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(children: [
+                Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
+                  Container(width: 48, height: 48, decoration: BoxDecoration(color: const Color(0xFFEFF6FF), shape: BoxShape.circle),
+                    child: Center(child: Text((_auth.userName ?? '?')[0], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))))),
+                  const SizedBox(width: 12),
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_auth.userName ?? '未登录', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                    Text(isAdmin ? '管理员视角' : '员工视角', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                  ]),
+                ]))),
+                const SizedBox(height: 16),
+                Card(
+                  color: const Color(0xFFF0FDF4),
+                  child: Padding(padding: const EdgeInsets.all(20), child: Column(children: [
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                      _statItem('本月打卡', '${_data['monthlyCheckin'] ?? 0}', const Color(0xFF2563EB)),
+                      _statItem('出勤天数', '${_data['workDays'] ?? 0}', const Color(0xFF16A34A)),
+                      _statItem('总里程', '${_data['totalKm'] ?? 0}', const Color(0xFFF59E0B)),
+                    ]),
+                  ])),
                 ),
-              ),
+              ]),
             ),
-            const SizedBox(height: 20),
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.4,
-                children: [
-                  HomeCard(icon: Icons.map, title: '实时定位', subtitle: '自己位置', color: Colors.blue,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MapPage()))),
-                  HomeCard(icon: Icons.fingerprint, title: '打卡记录', subtitle: '我的签到', color: Colors.green,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendancePage()))),
-                  HomeCard(icon: Icons.route, title: '我的轨迹', subtitle: '运动路线', color: Colors.orange,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrackReplayPage()))),
-                  HomeCard(icon: Icons.camera_alt, title: '水印相机', subtitle: '拍照带水印', color: Colors.purple,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WatermarkCameraPage()))),
-                  HomeCard(icon: Icons.assignment, title: '工作汇报', subtitle: '日报周报', color: Colors.teal,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportPage()))),
-                  HomeCard(icon: Icons.approval, title: '审批', subtitle: '请假出差', color: Colors.red,
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ApprovalPage()))),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
+  }
+
+  Widget _statItem(String label, String value, Color color) {
+    return Column(children: [
+      Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: color)),
+      const SizedBox(height: 4),
+      Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+    ]);
   }
 }

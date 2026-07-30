@@ -1,6 +1,7 @@
-// 审批中心 — 请假/出差/报销申请+列表
+// 审批页 v2
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/ft_toast.dart';
 
 class ApprovalPage extends StatefulWidget {
   const ApprovalPage({super.key});
@@ -8,160 +9,73 @@ class ApprovalPage extends StatefulWidget {
   State<ApprovalPage> createState() => _ApprovalPageState();
 }
 
-class _ApprovalPageState extends State<ApprovalPage> {
-  final ApiService _api = ApiService();
-  List _list = [];
+class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderStateMixin {
+  final _api = ApiService();
+  late TabController _tabCtrl;
+  List _myRequests = []; List _pendingApprovals = [];
   bool _loading = true;
-  String _filter = 'all';
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); _tabCtrl = TabController(length: 3, vsync: this); _load(); }
+  @override
+  void dispose() { _tabCtrl.dispose(); super.dispose(); }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final r = await _api.get('/api/v1/approvals${_filter == 'all' ? '' : '?status=$_filter'}');
-      setState(() { _list = r.data['approvals'] ?? []; _loading = false; });
-    } catch (e) {
-      debugPrint('加载审批列表失败: $e');
-      if (mounted) {
-        setState(() => _loading = false);
-        _extractBizMessage(e, '加载失败');
-      }
-    }
-  }
-
-  void _extractBizMessage(dynamic e, String prefix) {
-    try {
-      final resp = (e as dynamic).response;
-      if (resp?.data is Map) {
-        final msg = (resp.data as Map)['message'] as String?;
-        if (msg != null && msg.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$prefix: $msg')));
-          return;
-        }
-      }
-    } catch (_) {}
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$prefix')));
-  }
-
-  void _showCreateDialog() {
-    String selectedType = 'leave';
-    final titleCtrl = TextEditingController();
-    final reasonCtrl = TextEditingController();
-    final amountCtrl = TextEditingController();
-    final remarkCtrl = TextEditingController();
-    final startCtrl = TextEditingController(text: DateTime.now().toString().substring(0, 10));
-    final endCtrl = TextEditingController(text: DateTime.now().toString().substring(0, 10));
-    bool showAmount = false;
-
-    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) => AlertDialog(
-      title: const Text('新建审批'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        DropdownButtonFormField<String>(value: selectedType,
-          decoration: const InputDecoration(labelText: '类型'),
-          items: const [
-            DropdownMenuItem(value: 'leave', child: Row(children: [Icon(Icons.event_busy, size: 18), SizedBox(width: 8), Text('请假')])),
-            DropdownMenuItem(value: 'business_trip', child: Row(children: [Icon(Icons.flight_takeoff, size: 18), SizedBox(width: 8), Text('出差')])),
-            DropdownMenuItem(value: 'expense', child: Row(children: [Icon(Icons.receipt, size: 18), SizedBox(width: 8), Text('报销')])),
-          ], onChanged: (v) {
-            setDialogState(() { selectedType = v ?? 'leave'; showAmount = v == 'expense'; });
-          }),
-        const SizedBox(height: 8),
-        TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: '标题', border: OutlineInputBorder())),
-        const SizedBox(height: 8),
-        TextField(controller: reasonCtrl, decoration: const InputDecoration(labelText: '原因说明', border: OutlineInputBorder()), maxLines: 2),
-        const SizedBox(height: 8),
-        if (showAmount)
-          TextField(controller: amountCtrl, decoration: const InputDecoration(labelText: '金额(元)', prefixText: '¥ ', border: OutlineInputBorder()), keyboardType: TextInputType.number),
-        if (!showAmount) ...[
-          TextField(controller: startCtrl, decoration: const InputDecoration(labelText: '开始日期', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          TextField(controller: endCtrl, decoration: const InputDecoration(labelText: '结束日期', border: OutlineInputBorder())),
-        ],
-        const SizedBox(height: 8),
-        TextField(controller: remarkCtrl, decoration: const InputDecoration(labelText: '备注(可选)', border: OutlineInputBorder())),
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-        ElevatedButton(onPressed: () async {
-          final messenger = ScaffoldMessenger.of(context);
-          bool isValidDate(String d) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d);
-          if (!showAmount && (!isValidDate(startCtrl.text) || !isValidDate(endCtrl.text))) {
-            messenger.showSnackBar(const SnackBar(content: Text('日期格式无效，请使用 YYYY-MM-DD 格式')));
-            return;
-          }
-          try {
-            await _api.post('/api/v1/approvals', data: {
-              'type': selectedType, 'title': titleCtrl.text, 'reason': reasonCtrl.text,
-              'startDate': startCtrl.text, 'endDate': endCtrl.text,
-              'duration': _calcDuration(startCtrl.text, endCtrl.text),
-              if (showAmount) 'amount': double.tryParse(amountCtrl.text) ?? 0,
-              'remark': remarkCtrl.text,
-            });
-            if (!ctx.mounted) return;
-            Navigator.pop(ctx); _load();
-          } catch (e) {
-            messenger.showSnackBar(SnackBar(content: Text('提交失败')));
-          }
-        }, child: const Text('提交')),
-      ],
-    )));
-  }
-
-  String _calcDuration(String start, String end) {
-    try {
-      final s = DateTime.parse(start);
-      final e = DateTime.parse(end);
-      final days = e.difference(s).inDays + 1;
-      return '$days天';
-    } catch (_) {
-      return '1天';
-    }
+      final r = await _api.get('/api/v1/approvals');
+      if (mounted) setState(() { _myRequests = (r.data['myRequests'] as List?) ?? []; _pendingApprovals = (r.data['pending'] as List?) ?? []; _loading = false; });
+    } catch (_) { if (mounted) setState(() => _loading = false); }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('审批'), backgroundColor: Colors.blue, foregroundColor: Colors.white,
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: _showCreateDialog)]),
-      body: Column(children: [
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          ChoiceChip(label: const Text('全部'), selected: _filter == 'all', onSelected: (_) => setState(() { _filter = 'all'; _load(); })),
-          const SizedBox(width: 8),
-          ChoiceChip(label: const Text('待审批'), selected: _filter == 'pending', onSelected: (_) => setState(() { _filter = 'pending'; _load(); })),
-          const SizedBox(width: 8),
-          ChoiceChip(label: const Text('已通过'), selected: _filter == 'approved', onSelected: (_) => setState(() { _filter = 'approved'; _load(); })),
-        ]),
-        const Divider(),
-        Expanded(
-          child: _loading ? const Center(child: CircularProgressIndicator())
-              : _list.isEmpty ? const Center(child: Text('暂无记录'))
-              : RefreshIndicator(onRefresh: _load, child: ListView.builder(
-                  itemCount: _list.length,
-                  itemBuilder: (_, i) {
-                    final a = _list[i];
-                    final t = a['type'] ?? '';
-                    final typeLabel = t == 'leave' ? '请假' : (t == 'expense' ? '报销' : '出差');
-                    final typeIcon = t == 'leave' ? Icons.event_busy : (t == 'expense' ? Icons.receipt : Icons.flight_takeoff);
-                    final statusColor = a['status'] == 'approved' ? Colors.green : (a['status'] == 'rejected' ? Colors.red : Colors.orange);
-                    final amount = a['amount'];
-                    final remark = a['remark'] ?? '';
-                    String subtitle = a['reason'] ?? '';
-                    if (amount != null && amount > 0) subtitle += ' | ¥$amount';
-                    if (remark.isNotEmpty) subtitle += ' | $remark';
+      appBar: AppBar(title: const Text('审批'), bottom: TabBar(controller: _tabCtrl, tabs: const [Tab(text: '我发起的'), Tab(text: '待审批'), Tab(text: '已处理')])),
+      body: _loading ? const Center(child: CircularProgressIndicator())
+          : TabBarView(controller: _tabCtrl, children: [
+              _buildList(_myRequests),
+              _buildList(_pendingApprovals),
+              _buildList([]),
+            ]),
+    );
+  }
 
-                    return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: ListTile(
-                      leading: Icon(typeIcon, color: Colors.blue),
-                      title: Text(a['title'] ?? typeLabel),
-                      subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-                      trailing: Chip(label: Text(a['status'] ?? '待审批', style: const TextStyle(fontSize: 12, color: Colors.white)),
-                        backgroundColor: statusColor),
-                    ));
-                  },
-                )),
-        ),
-      ]),
+  Widget _buildList(List items) {
+    if (items.isEmpty) {
+      return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 64, height: 64, decoration: BoxDecoration(color: const Color(0xFFF0F9FF), shape: BoxShape.circle), child: const Icon(Icons.approval, size: 28, color: Color(0xFF0EA5E9))),
+        const SizedBox(height: 12), const Text('暂无数据', style: TextStyle(fontSize: 15, color: Colors.grey)),
+      ]));
+    }
+    return RefreshIndicator(onRefresh: _load, child: ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (context, i) {
+        final item = items[i] as Map<String, dynamic>;
+        final typeIcon = item['type'] == 'leave' ? '🏖️' : '✈️';
+        return ListTile(
+          leading: Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xFFDBEAFE), borderRadius: BorderRadius.circular(10)),
+            child: Center(child: Text(typeIcon, style: const TextStyle(fontSize: 20)))),
+          title: Text(item['title']?.toString() ?? '申请', style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(item['date']?.toString() ?? '', style: const TextStyle(fontSize: 12)),
+          trailing: _statusBadge(item['status']?.toString() ?? ''),
+        );
+      },
+    ));
+  }
+
+  Widget _statusBadge(String status) {
+    final config = {
+      'pending': {'label': '审批中', 'bg': const Color(0xFFFEF3C7), 'fg': const Color(0xFFF59E0B)},
+      'approved': {'label': '已通过', 'bg': const Color(0xFFDCFCE7), 'fg': const Color(0xFF16A34A)},
+      'rejected': {'label': '已拒绝', 'bg': const Color(0xFFFEF2F2), 'fg': const Color(0xFFDC2626)},
+    };
+    final c = config[status] ?? config['pending']!;
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: c['bg'] as Color, borderRadius: BorderRadius.circular(6)),
+      child: Text(c['label'] as String, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: c['fg'] as Color)),
     );
   }
 }
