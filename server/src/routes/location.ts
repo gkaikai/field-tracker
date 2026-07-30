@@ -130,15 +130,24 @@ router.post('/batch',
 
       const dbValues: any[][] = [];
       for (const pt of points) {
-        const ts = pt.timestamp || Date.now();
+        // 兼容 ISO 字符串时间 和 Unix 数字时间戳
+        let tsNum: number;
+        const rawTs = pt.timestamp;
+        if (typeof rawTs === 'string') {
+          tsNum = new Date(rawTs).getTime();
+        } else if (typeof rawTs === 'number') {
+          tsNum = rawTs;
+        } else {
+          tsNum = Date.now();
+        }
         // 内存
         addTrackPoint(user.userId, {
           lng: pt.lng, lat: pt.lat,
           accuracy: pt.accuracy || 0, speed: pt.speed || 0,
-          timestamp: ts,
+          timestamp: tsNum,
         });
         // 数据库批量
-        dbValues.push([user.userId, pt.lng, pt.lat, pt.accuracy || 0, pt.speed || 0, ts]);
+        dbValues.push([user.userId, pt.lng, pt.lat, pt.accuracy || 0, pt.speed || 0, tsNum]);
       }
 
       // 批量写入数据库

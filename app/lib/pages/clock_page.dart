@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/error_codes.dart';
 import '../services/amap_location_service.dart';
 import '../utils/time_utils.dart';
 import '../theme/app_theme.dart';
@@ -126,7 +127,9 @@ class _ClockPageState extends State<ClockPage> {
         _showResult('error', '❌ 打卡失败: ${data['message'] ?? '未知错误'}');
       }
     } catch (e) {
-      _showResult('error', '❌ 打卡失败');
+      String msg = '❌ 打卡失败';
+      if (e is ApiException) msg = '❌ ${e.friendlyMessage}';
+      _showResult('error', msg);
     } finally {
       if (mounted) setState(() => _isClocking = false);
     }

@@ -102,6 +102,19 @@ router.post('/',
         ],
       );
 
+      // 🔗 自动同步：为圆形围栏创建对应的打卡规则
+      if (shapeType === 'circle' && centerLat && centerLng && radiusMeters) {
+        try {
+          await pgPool.query(
+            `INSERT INTO attendance_rules (name, rule_type, department_id, center_lat, center_lng, radius_meters, checkin_start, checkin_end, is_active)
+             VALUES ($1, 'location', $2, $3, $4, $5, '06:00:00', '22:00:00', true)`,
+            [name + '打卡规则', departmentId || null, centerLat, centerLng, radiusMeters],
+          );
+        } catch (_ruleErr) {
+          // 非致命：规则创建失败不影响围栏创建
+        }
+      }
+
       res.status(201).json(formatFence(result.rows[0]));
     } catch (err) {
       next(err);

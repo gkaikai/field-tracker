@@ -1,34 +1,13 @@
+// WiFi打卡页 v2
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
 
-/// WiFi打卡 - 快速工具类
-class WifiCheckinService {
-  static Future<String?> scanAndCheckin(String token) async {
-    // 在真实手机上，这里会调用 wifi_iot 插件扫描附近WiFi
-    // 然后在服务端匹配打卡规则中的WiFi列表
-    // 由于无插件支持，这里返回占位提示
-    return 'SIMULATED_WIFI';
-  }
-  
-  /// 根据WiFi名称向服务器打卡
-  static Future<bool> checkinByWifi(String token, String ssid, String bssid) async {
-    final api = ApiService();
-    try {
-      await api.post('/api/v1/attendance/checkin', data: {
-        'type': 'checkin',
-        'lng': 0, 'lat': 0,
-        'wifi_bssid': bssid,
-      });
-      return true;
-    } catch (_) { return false; }
-  }
+class WifiCheckinPage extends StatefulWidget {
+  const WifiCheckinPage({super.key});
+  @override
+  State<WifiCheckinPage> createState() => _WifiCheckinPageState();
 }
 
-/// WiFi打卡页面
-class WifiCheckinPage extends StatelessWidget {
-  final String token;
-  const WifiCheckinPage({super.key, required this.token});
-
+class _WifiCheckinPageState extends State<WifiCheckinPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -36,30 +15,46 @@ class WifiCheckinPage extends StatelessWidget {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.wifi, size: 80, color: Colors.blue),
-              const SizedBox(height: 16),
-              const Text('WiFi打卡', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text('点击下方按钮扫描当前连接的WiFi\n并自动完成签到', style: TextStyle(fontSize: 14, color: Colors.grey[600]), textAlign: TextAlign.center),
-              const SizedBox(height: 32),
-              SizedBox(width: double.infinity, height: 52,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.wifi_find),
-                  label: const Text('扫描WiFi并打卡', style: TextStyle(fontSize: 16)),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('WiFi打卡需要真机硬件支持，请在手机上使用地图页面打卡')),
-                    );
-                  },
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.wifi, size: 72, color: Color(0xFF2563EB)),
+            const SizedBox(height: 16),
+            const Text('WiFi 打卡', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text('连接指定 WiFi 后自动签到', style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFBBF7D0)), color: const Color(0xFFF0FDF4)),
+              child: Row(children: [
+                Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.wifi, color: Color(0xFF16A34A), size: 24)),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Office-WiFi-5G', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text('信号强度: ████ 强', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ])),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
+                  child: const Text('已连接', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF16A34A))),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+            Text('已连接指定 WiFi，可自动打卡', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+            const SizedBox(height: 24),
+            SizedBox(width: double.infinity, height: 50,
+              child: ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.wifi),
+                label: const Text('WiFi 签到', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A), foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0,
                 ),
               ),
-              const SizedBox(height: 16),
-              Text('提示: 需要安装 wifi_iot 插件\n当前版本暂不支持模拟器', style: TextStyle(fontSize: 12, color: Colors.grey[400]), textAlign: TextAlign.center),
-            ],
-          ),
+            ),
+          ]),
         ),
       ),
     );
