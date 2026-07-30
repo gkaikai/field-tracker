@@ -295,7 +295,13 @@ router.get('/rules',
          LEFT JOIN departments d ON r.department_id = d.id
          ORDER BY r.created_at DESC`,
       );
-      res.json({ rules: result.rows });
+      res.json({ rules: result.rows.map(r => ({
+        ...r,
+        startTime: r.checkin_start,
+        endTime: r.checkin_end,
+        lateTime: r.late_time || r.checkin_end || null,
+        radius: r.radius_meters,
+      })) });
     } catch (err) {
       // 数据库不可用时返回内存规则
       res.json({ rules: memRules });
@@ -321,7 +327,7 @@ router.post('/rules',
         `INSERT INTO attendance_rules (name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid, checkin_start, checkin_end)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *`,
-        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || 300, wifi_ssid || null, wifi_bssid || null, req.body.checkin_start || null, req.body.checkin_end || null],
+        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || req.body.radius || 300, wifi_ssid || null, wifi_bssid || null, req.body.checkin_start || req.body.startTime || null, req.body.checkin_end || req.body.endTime || null],
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
@@ -352,8 +358,8 @@ router.put('/rules/:id',
           'center_lat' in req.body ? req.body.center_lat : cur.center_lat,
           'center_lng' in req.body ? req.body.center_lng : cur.center_lng,
           'radius_meters' in req.body ? req.body.radius_meters : ('radius' in req.body ? req.body.radius : cur.radius_meters),
-          'checkin_start' in req.body ? req.body.checkin_start : cur.checkin_start,
-          'checkin_end' in req.body ? req.body.checkin_end : cur.checkin_end,
+          'checkin_start' in req.body ? req.body.checkin_start : ('startTime' in req.body ? req.body.startTime : cur.checkin_start),
+          'checkin_end' in req.body ? req.body.checkin_end : ('endTime' in req.body ? req.body.endTime : cur.checkin_end),
           'wifi_ssid' in req.body ? req.body.wifi_ssid : ('wifiName' in req.body ? req.body.wifiName : cur.wifi_ssid),
           'wifi_bssid' in req.body ? req.body.wifi_bssid : cur.wifi_bssid,
           req.params.id,

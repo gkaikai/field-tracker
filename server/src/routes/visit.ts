@@ -9,6 +9,73 @@ import { pgPool } from '../config/database';
 const router = Router();
 router.use(authMiddleware);
 
+// GET /api/v1/visits/plans — 拜访计划列表（含未开始的计划）
+router.get('/plans',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const result = await pgPool.query(
+        `SELECT vr.id, c.name as title, vr.purpose, vr.planned_at as date,
+                vr.status, c.address
+         FROM visit_records vr
+         JOIN customers c ON vr.customer_id = c.id
+         WHERE vr.user_id = $1
+         ORDER BY vr.planned_at DESC NULLS LAST
+         LIMIT 50`,
+        [user.userId],
+      );
+      res.json({ plans: result.rows.map(r => ({
+        ...r,
+        title: r.title || '拜访计划',
+        date: r.date ? new Date(r.date).toISOString().split('T')[0] : '',
+        status: r.status === 'planned' ? '计划' : r.status === 'in_progress' ? '进行中' : '已完成',
+      })) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/visits/checkin — 拜访签到（body 传 visitId，兼容前端旧URL）
+router.post('/checkin',
+  validate([
+    body('visitId').isUUID().withMessage('拜访ID不能为空'),
+    body('lat').isFloat(),
+    body('lng').isFloat(),
+    body('address').optional().isString(),
+  ]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const { visitId, lat, lng, address } = req.body;
+
+      const check = await pgPool.query(
+        'SELECT id, status FROM visit_records WHERE id=$1 AND user_id=$2',
+        [visitId, user.userId],
+      );
+      if (check.rows.length === 0) {
+        return res.status(404).json(ErrorCodes.VISIT_NOT_FOUND);
+      }
+      if (check.rows[0].status !== 'planned') {
+        return res.status(409).json(ErrorCodes.VISIT_ALREADY_CHECKIN);
+      }
+
+      await pgPool.query(
+        `UPDATE visit_records
+         SET status = 'in_progress', start_time = NOW(),
+             signin_lat = $1, signin_lng = $2, signin_address = COALESCE($3, signin_address),
+             updated_at = NOW()
+         WHERE id = $4 AND user_id = $5`,
+        [lat, lng, address || '', visitId, user.userId],
+      );
+
+      res.json({ success: true, checkedIn: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // GET /api/v1/visits/today — 获取今日拜访计划（任务列表）
 router.get('/today',
   async (req: Request, res: Response, next: NextFunction) => {
@@ -18,7 +85,8 @@ router.get('/today',
 
       const result = await pgPool.query(
         `SELECT vr.*, c.name as customer_name, c.address as customer_address,
-                c.lat as customer_lat, c.lng as customer_lng
+                c.lat as customer_lat, c.lng as customer_lng,
+                CASE WHEN vr.status IN ('in_progress', 'completed') THEN true ELSE false END as "checkedIn"
          FROM visit_records vr
          LEFT JOIN customers c ON vr.customer_id = c.id
          WHERE vr.user_id = $1

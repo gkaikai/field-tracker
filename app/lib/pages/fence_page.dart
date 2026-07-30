@@ -12,6 +12,7 @@ import 'fence_edit_page.dart';
 
 import '../services/route_guard.dart';
 import '../services/app_role.dart';
+import '../theme/app_theme.dart';
 
 class FencePage extends StatefulWidget {
   const FencePage({super.key});
@@ -545,6 +546,7 @@ class _FencePageState extends State<FencePage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('电子围栏'),
+        backgroundColor: context.appBarColor(_isAdmin),
         bottom: TabBar(
           controller: _tabController,
           tabs: tabs,
@@ -884,7 +886,7 @@ class _FencePageState extends State<FencePage>
           return ListTile(
             dense: true,
             leading: const Icon(Icons.location_on_outlined, size: 18, color: Colors.grey),
-            title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
+            title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14, color: Colors.black87)),
             subtitle: item['address'] != null && item['address']!.isNotEmpty
                 ? Text(item['address']!, style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     maxLines: 1, overflow: TextOverflow.ellipsis)
@@ -945,10 +947,12 @@ class _FencePageState extends State<FencePage>
               height: 36,
               child: TextField(
                 controller: _searchCtrl,
-                style: const TextStyle(fontSize: 14),
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
                 decoration: InputDecoration(
                   hintText: '搜索地址，如：郑州科技园',
-                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: Colors.grey[50],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),

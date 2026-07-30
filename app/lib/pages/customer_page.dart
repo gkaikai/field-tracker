@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/route_guard.dart';
+import '../theme/app_theme.dart';
 import '../config/app_config.dart';
 import '../config/amap_key.dart';
 import '../widgets/ft_toast.dart';
+import '../theme/app_theme.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -113,10 +115,12 @@ class _CustomerPageState extends State<CustomerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('客户管理'), actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _form())]),
+      appBar: AppBar(title: const Text('客户管理'), backgroundColor: context.adminPrimary, actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _form())]),
       body: Column(children: [
         Container(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: TextField(
-          controller: _searchCtrl, decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: '搜索客户名称/地址...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), filled: true, fillColor: Colors.grey.shade100),
+          controller: _searchCtrl,
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+          decoration: InputDecoration(prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF94A3B8)), hintText: '搜索客户名称/地址...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), filled: true, fillColor: Colors.grey.shade100),
           onChanged: (v) => _load(keyword: v.isNotEmpty ? v : null),
         )),
         const Divider(height: 16),

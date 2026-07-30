@@ -36,7 +36,10 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('员工管理'), actions: [IconButton(icon: const Icon(Icons.add), onPressed: _showForm)]),
+      appBar: AppBar(
+        title: const Text('员工管理'),
+        backgroundColor: context.adminPrimary,
+        actions: [IconButton(icon: const Icon(Icons.add), onPressed: _showForm)]),
       body: Column(children: [
         Container(padding: const EdgeInsets.all(12), child: TextField(
           controller: _searchCtrl, decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: '搜索员工姓名/工号...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), filled: true, fillColor: Colors.grey.shade100),

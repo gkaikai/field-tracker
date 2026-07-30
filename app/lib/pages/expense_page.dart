@@ -54,7 +54,18 @@ class _ExpensePageState extends State<ExpensePage> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(title: const Text('费用报销'), bottom: const TabBar(tabs: [Tab(text: '我的报销'), Tab(text: '提交报销')])),
+        appBar: AppBar(
+          title: const Text('费用报销'),
+          bottom: const TabBar(
+            indicatorColor: Colors.white,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            tabs: [
+              Tab(text: '我的报销'),
+              Tab(text: '提交报销'),
+            ],
+          ),
+        ),
         body: TabBarView(children: [
           _buildList(), _buildForm(),
         ]),

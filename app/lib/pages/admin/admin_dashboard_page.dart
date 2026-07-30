@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../utils/time_utils.dart';
-
+import '../../theme/app_theme.dart';
 class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
   @override
@@ -37,7 +37,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         _recentVisits = (results[2].data['visits'] as List?) ?? [];
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (mounted) setState(() { _isLoading = false; _error = '加载驾驶舱数据失败'; });
     }
   }
@@ -45,7 +45,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('管理驾驶舱'),
+      appBar: AppBar(
+        title: const Text('管理驾驶舱'),
+        backgroundColor: context.adminPrimary,
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _loadDashboard)]),
       body: _isLoading ? const Center(child: CircularProgressIndicator())
           : _error != null ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [

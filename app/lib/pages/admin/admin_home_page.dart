@@ -8,6 +8,7 @@ import '../../services/update_service.dart';
 import '../../services/route_guard.dart';
 import '../../widgets/home_card.dart';
 import '../map_page.dart';
+import '../../theme/app_theme.dart';
 import '../track_replay_page.dart';
 import '../fence_page.dart';
 import '../customer_page.dart';
@@ -72,6 +73,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('管理后台'),
+        backgroundColor: context.adminPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.person),

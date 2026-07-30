@@ -7,6 +7,7 @@ import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
+import '../theme/app_theme.dart';
 
 class FenceEditPage extends StatefulWidget {
   final Map<String, dynamic> fence;
@@ -279,6 +280,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_isCircle ? '编辑圆形围栏' : '编辑多边形围栏'),
+        backgroundColor: context.adminPrimary,
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
@@ -328,10 +330,12 @@ class _FenceEditPageState extends State<FenceEditPage> {
               height: 36,
               child: TextField(
                 controller: _searchCtrl,
-                style: const TextStyle(fontSize: 14),
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
                 decoration: InputDecoration(
                   hintText: '搜索地址定位',
-                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: Colors.grey[50],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -500,7 +504,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
           return ListTile(
             dense: true,
             leading: const Icon(Icons.location_on_outlined, size: 18, color: Colors.grey),
-            title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
+            title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14, color: Colors.black87)),
             subtitle: item['address'] != null && item['address']!.isNotEmpty
                 ? Text(item['address']!, style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                     maxLines: 1, overflow: TextOverflow.ellipsis)

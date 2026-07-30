@@ -36,6 +36,10 @@ class _ClockPageState extends State<ClockPage> {
   Timer? _gpsTimer;
   Timer? _clockTimer;
   String _currentTime = '';
+  
+  // 打卡规则
+  List<Map<String, dynamic>> _rules = [];
+  bool _rulesLoaded = false;
 
   @override
   void initState() {
@@ -92,6 +96,7 @@ class _ClockPageState extends State<ClockPage> {
       final today = data['today'] as Map<String, dynamic>? ?? {};
       if (mounted) {
         setState(() {
+          _isLoading = false;
           _checkedIn = today['checkedIn'] == true;
           _checkedOut = today['checkedOut'] == true;
           final records = (today['records'] as List?) ?? [];
@@ -103,11 +108,26 @@ class _ClockPageState extends State<ClockPage> {
               _checkoutTime = rm['check_time'] as String?;
             }
           }
-          _isLoading = false;
         });
       }
+      // 加载打卡规则
+      _loadRules();
     } catch (e) {
       if (mounted) setState(() { _isLoading = false; _showResult('error', '加载打卡状态失败'); });
+    }
+  }
+
+  Future<void> _loadRules() async {
+    try {
+      final r = await _api.get('/api/v1/attendance/rules');
+      if (!mounted) return;
+      final rules = (r.data['rules'] as List?) ?? [];
+      setState(() {
+        _rules = rules.cast<Map<String, dynamic>>();
+        _rulesLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _rulesLoaded = true);
     }
   }
 
@@ -395,48 +415,63 @@ class _ClockPageState extends State<ClockPage> {
   }
 
   Widget _buildRulesCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E293B) : Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : Colors.grey.shade200),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Icon(Icons.info_outline, size: 16, color: Color(0xFF64748B)),
+          Icon(Icons.info_outline, size: 16, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
           const SizedBox(width: 6),
-          Text('今日考勤规则', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+          Text('今日考勤规则', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+            color: isDark ? const Color(0xFFF1F5F9) : Colors.grey.shade700)),
         ]),
         const SizedBox(height: 10),
-        _ruleRow('⏰', '上下班时间', '09:00 - 18:00'),
-        _ruleRow('📍', '打卡范围', '公司 100m 内'),
-        _ruleRow('📅', '工作日', '周一至周五'),
+        if (_rules.isEmpty && _rulesLoaded)
+          Text('暂无打卡规则', style: TextStyle(fontSize: 13, color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade500))
+        else if (!_rulesLoaded)
+          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+        else
+          ...(_rules.take(3).map((r) {
+            final st = r['startTime']?.toString() ?? r['checkin_start']?.toString() ?? '09:00';
+            final et = r['endTime']?.toString() ?? r['checkin_end']?.toString() ?? '18:00';
+            final rd = r['radius']?.toString() ?? r['radius_meters']?.toString() ?? '300';
+            return _ruleRow(context, '⏰', '上下班时间', '$st - $et');
+          })),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFFF0FDF4), borderRadius: BorderRadius.circular(6),
+            color: isDark ? const Color(0xFF064E3B) : const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(6),
           ),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.check_circle, size: 14, color: Color(0xFF16A34A)),
-            SizedBox(width: 4),
-            Text('当前在打卡区域内', style: TextStyle(fontSize: 12, color: Color(0xFF16A34A), fontWeight: FontWeight.w500)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.check_circle, size: 14, color: isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A)),
+            const SizedBox(width: 4),
+            Text('当前在打卡区域内', style: TextStyle(fontSize: 12,
+              color: isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A),
+              fontWeight: FontWeight.w500)),
           ]),
         ),
       ]),
     );
   }
 
-  Widget _ruleRow(String icon, String label, String value) {
+  Widget _ruleRow(BuildContext context, String icon, String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(children: [
         Text(icon, style: const TextStyle(fontSize: 14)),
         const SizedBox(width: 8),
-        Text('$label: ', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
-        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        Text('$label: ', style: TextStyle(fontSize: 13, color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600)),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+          color: isDark ? const Color(0xFFF1F5F9) : null)),
       ]),
     );
   }

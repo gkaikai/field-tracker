@@ -31,7 +31,20 @@ class _ApprovalPageState extends State<ApprovalPage> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('审批'), bottom: TabBar(controller: _tabCtrl, tabs: const [Tab(text: '我发起的'), Tab(text: '待审批'), Tab(text: '已处理')])),
+      appBar: AppBar(
+        title: const Text('审批'),
+        bottom: TabBar(
+          controller: _tabCtrl,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: '我发起的'),
+            Tab(text: '待审批'),
+            Tab(text: '已处理'),
+          ],
+        ),
+      ),
       body: _loading ? const Center(child: CircularProgressIndicator())
           : TabBarView(controller: _tabCtrl, children: [
               _buildList(_myRequests),

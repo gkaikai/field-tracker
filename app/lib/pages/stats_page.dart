@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../services/route_guard.dart';
+import '../theme/app_theme.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -50,7 +51,10 @@ class _StatsPageState extends State<StatsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('数据统计'), actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)]),
+      appBar: AppBar(
+        title: const Text('数据统计'),
+        backgroundColor: context.adminPrimary,
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

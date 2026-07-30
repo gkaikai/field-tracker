@@ -298,9 +298,13 @@ class _PoiSearchFieldState extends State<PoiSearchField> {
               child: TextField(
                 controller: _ctrl,
                 onChanged: _onSearchChanged,
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
                 decoration: InputDecoration(
                   hintText: widget.hintText,
-                  prefixIcon: const Icon(Icons.search, size: 20),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF94A3B8)),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
                   suffixIcon: _loading
                       ? const Padding(
                           padding: EdgeInsets.all(12),
@@ -356,9 +360,9 @@ class _PoiSearchFieldState extends State<PoiSearchField> {
                 final item = _suggestions[i];
                 return ListTile(
                   dense: true,
-                  title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14)),
+                  title: Text(item['name'] ?? '', style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A))),
                   subtitle: item['address'] != null && item['address']!.isNotEmpty
-                      ? Text(item['address']!, style: const TextStyle(fontSize: 11, color: Colors.grey))
+                      ? Text(item['address']!, style: const TextStyle(fontSize: 11, color: Color(0xFF475569)))
                       : null,
                   onTap: () => _onSuggestionTap(item),
                 );

@@ -141,6 +141,7 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
         (_dashboardData['pendingApprovalCount'] as int?) ?? 0;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('工作台'),
         actions: [
@@ -352,7 +353,7 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
               ),
               const SizedBox(height: 16),
 
-              // ======== 月度数据概览 ========
+              // ======== 月度数据概览（点击跳转考勤页） ========
               Card(
                 elevation: 1,
                 shape: RoundedRectangleBorder(
@@ -367,6 +368,8 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                         '${monthly['checkinDays'] ?? 0}',
                         '本月打卡',
                         Colors.blue,
+                        onTap: () => Navigator.push(context,
+                            MaterialPageRoute(builder: (_) => const AttendancePage())),
                       ),
                       Container(
                           height: 30,
@@ -377,6 +380,8 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                         '${monthly['totalDays'] ?? 0}',
                         '出勤天数',
                         Colors.green,
+                        onTap: () => Navigator.push(context,
+                            MaterialPageRoute(builder: (_) => const AttendancePage())),
                       ),
                       Container(
                           height: 30,
@@ -387,6 +392,8 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                         '$pendingCount',
                         '待审批',
                         pendingCount > 0 ? Colors.red : Colors.grey,
+                        onTap: () => Navigator.push(context,
+                            MaterialPageRoute(builder: (_) => const ApprovalPage())),
                       ),
                     ],
                   ),
@@ -405,7 +412,7 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: 2.2,
+                childAspectRatio: 1.25,
                 children: [
                   HomeCard(
                     icon: Icons.route,
@@ -556,20 +563,23 @@ class _EmployeeHomePageState extends State<EmployeeHomePage>
   }
 
   Widget _buildStatItem(
-      IconData icon, String value, String label, Color color) {
-    return Column(
-      children: [
-        Icon(icon, size: 22, color: color),
-        const SizedBox(height: 4),
-        Text(value,
-            style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: color)),
-        Text(label,
-            style: TextStyle(
-                fontSize: 11, color: Colors.grey[600])),
-      ],
+      IconData icon, String value, String label, Color color, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Icon(icon, size: 22, color: color),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: color)),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11, color: Colors.grey[600])),
+        ],
+      ),
     );
   }
 }
