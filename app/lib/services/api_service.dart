@@ -203,4 +203,12 @@ class ApiService {
       _ => '请求失败($code)',
     };
   }
+
+  /// 不带业务拦截器的Dio实例（用于第三方API如高德POI搜索）
+  /// 复用超时配置，但不添加 Bearer token、业务错误解析、熔断器
+  static final Dio amapDio = Dio(BaseOptions(
+    connectTimeout: Duration(seconds: 10),
+    receiveTimeout: Duration(seconds: 10),
+    headers: {'Content-Type': 'application/json'},
+  ));
 }

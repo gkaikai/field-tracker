@@ -1,7 +1,6 @@
+// 审批中心 — 请假/出差/报销申请+列表
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
-import '../services/auth_service.dart';
+import '../services/api_service.dart';
 
 class ApprovalPage extends StatefulWidget {
   const ApprovalPage({super.key});
@@ -10,7 +9,7 @@ class ApprovalPage extends StatefulWidget {
 }
 
 class _ApprovalPageState extends State<ApprovalPage> {
-  final _auth = AuthService();
+  final ApiService _api = ApiService();
   List _list = [];
   bool _loading = true;
   String _filter = 'all';
@@ -21,11 +20,29 @@ class _ApprovalPageState extends State<ApprovalPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      final r = await dio.get('/api/v1/approvals${_filter == 'all' ? '' : '?status=$_filter'}',
-        options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      final r = await _api.get('/api/v1/approvals${_filter == 'all' ? '' : '?status=$_filter'}');
       setState(() { _list = r.data['approvals'] ?? []; _loading = false; });
-    } catch (e) { debugPrint('加载审批列表失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载失败: $e'))); } }
+    } catch (e) {
+      debugPrint('加载审批列表失败: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        _extractBizMessage(e, '加载失败');
+      }
+    }
+  }
+
+  void _extractBizMessage(dynamic e, String prefix) {
+    try {
+      final resp = (e as dynamic).response;
+      if (resp?.data is Map) {
+        final msg = (resp.data as Map)['message'] as String?;
+        if (msg != null && msg.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$prefix: $msg')));
+          return;
+        }
+      }
+    } catch (_) {}
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$prefix')));
   }
 
   void _showCreateDialog() {
@@ -69,37 +86,34 @@ class _ApprovalPageState extends State<ApprovalPage> {
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
           final messenger = ScaffoldMessenger.of(context);
-          // 简单日期格式校验：YYYY-MM-DD
           bool isValidDate(String d) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d);
           if (!showAmount && (!isValidDate(startCtrl.text) || !isValidDate(endCtrl.text))) {
             messenger.showSnackBar(const SnackBar(content: Text('日期格式无效，请使用 YYYY-MM-DD 格式')));
             return;
           }
           try {
-            final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-            await dio.post('/api/v1/approvals', data: {
+            await _api.post('/api/v1/approvals', data: {
               'type': selectedType, 'title': titleCtrl.text, 'reason': reasonCtrl.text,
               'startDate': startCtrl.text, 'endDate': endCtrl.text,
               'duration': _calcDuration(startCtrl.text, endCtrl.text),
-              if (showAmount) 'amount': amountCtrl.text,
+              if (showAmount) 'amount': double.tryParse(amountCtrl.text) ?? 0,
               'remark': remarkCtrl.text,
-            }, options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+            });
             if (!ctx.mounted) return;
             Navigator.pop(ctx); _load();
           } catch (e) {
-            messenger.showSnackBar(SnackBar(content: Text('提交失败: $e')));
+            messenger.showSnackBar(SnackBar(content: Text('提交失败')));
           }
         }, child: const Text('提交')),
       ],
     )));
   }
 
-  /// 根据 startDate/endDate 计算持续时间，如 "2天"
   String _calcDuration(String start, String end) {
     try {
       final s = DateTime.parse(start);
       final e = DateTime.parse(end);
-      final days = e.difference(s).inDays + 1; // 含首尾
+      final days = e.difference(s).inDays + 1;
       return '$days天';
     } catch (_) {
       return '1天';

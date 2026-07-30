@@ -65,8 +65,8 @@ router.get('/',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user as JwtPayload;
-      const page = parseInt(req.query.page as string) || 1;
-      const pageSize = parseInt(req.query.pageSize as string) || 20;
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 20));
 
       let whereClause = 'WHERE user_id = $1 AND is_deleted = false';
       const params: any[] = [user.userId];

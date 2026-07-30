@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
+import '../services/api_service.dart';
 
 /// 忘记密码页面（3步：手机号→验证码→新密码）
 class ForgotPasswordPage extends StatefulWidget {
@@ -47,10 +46,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   }
 
   /// 获取图形验证码
+  final _api = ApiService();
+
   Future<void> _loadCaptcha() async {
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      final resp = await dio.get('/api/v1/auth/captcha');
+      final resp = await _api.get('/api/v1/auth/captcha');
       if (mounted) {
         setState(() {
           _captchaToken = resp.data['token'];
@@ -81,18 +81,15 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     });
 
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-
       // 先校验图形验证码
       if (_captchaToken != null && _captchaCtrl.text.trim().isNotEmpty) {
         try {
-          await dio.post('/api/v1/auth/verify-captcha', data: {
+          await _api.post('/api/v1/auth/verify-captcha', data: {
             'token': _captchaToken,
             'code': _captchaCtrl.text.trim(),
           });
-        } on DioException catch (e) {
-          final msg = e.response?.data?['message'] ?? '验证码错误';
-          Fluttertoast.showToast(msg: '❌ 图形验证码错误: $msg', backgroundColor: Colors.red);
+        } catch (_) {
+          Fluttertoast.showToast(msg: '❌ 图形验证码错误', backgroundColor: Colors.red);
           _loadCaptcha(); // 刷新验证码
           setState(() => _loading = false);
           return;
@@ -104,7 +101,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       }
 
       // 图形验证码通过后，发送短信
-      await dio.post('/api/v1/auth/send-code', data: {'phone': phone});
+      await _api.post('/api/v1/auth/send-code', data: {'phone': phone});
 
       if (!mounted) return;
       setState(() {
@@ -112,13 +109,10 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         _step = 2;
       });
       Fluttertoast.showToast(msg: '✅ 验证码已发送（开发模式请查看服务端日志）', backgroundColor: Colors.green);
-    } on DioException catch (e) {
-      final msg = e.response?.data?['message'] ?? '发送失败';
-      Fluttertoast.showToast(msg: '❌ $msg', backgroundColor: Colors.red);
+    } catch (e) {
+      Fluttertoast.showToast(msg: '❌ 发送失败', backgroundColor: Colors.red);
       _loadCaptcha();
       _captchaCtrl.clear();
-    } catch (e) {
-      Fluttertoast.showToast(msg: '❌ 发送失败: $e', backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -135,19 +129,15 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     setState(() => _loading = true);
 
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      await dio.post('/api/v1/auth/verify-code', data: {
+      await _api.post('/api/v1/auth/verify-code', data: {
         'phone': _codeSentTo,
         'code': code,
       });
 
       if (!mounted) return;
       setState(() => _step = 3);
-    } on DioException catch (e) {
-      final msg = e.response?.data?['message'] ?? '验证失败';
-      Fluttertoast.showToast(msg: '❌ $msg', backgroundColor: Colors.red);
     } catch (e) {
-      Fluttertoast.showToast(msg: '❌ $e', backgroundColor: Colors.red);
+      Fluttertoast.showToast(msg: '❌ 验证失败', backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -170,8 +160,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     setState(() => _loading = true);
 
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      await dio.post('/api/v1/auth/forgot-password', data: {
+      await _api.post('/api/v1/auth/forgot-password', data: {
         'phone': _codeSentTo,
         'newPassword': newPwd,
       });
@@ -179,11 +168,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       if (!mounted) return;
       Fluttertoast.showToast(msg: '✅ 密码重置成功，请使用新密码登录', backgroundColor: Colors.green);
       Navigator.pop(context);
-    } on DioException catch (e) {
-      final msg = e.response?.data?['message'] ?? '重置失败';
-      Fluttertoast.showToast(msg: '❌ $msg', backgroundColor: Colors.red);
     } catch (e) {
-      Fluttertoast.showToast(msg: '❌ $e', backgroundColor: Colors.red);
+      Fluttertoast.showToast(msg: '❌ 重置失败', backgroundColor: Colors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -194,8 +180,6 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('忘记密码'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),

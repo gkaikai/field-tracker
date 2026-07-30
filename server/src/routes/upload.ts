@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { pgPool } from '../config/database';
+import { ErrorCodes } from '../errors/errorCodes';
 
 const router = Router();
 router.use(authMiddleware);
@@ -89,14 +90,14 @@ router.post('/photo', upload.single('photo'), async (req: Request, res: Response
     // 校验 bizType 有效性
     const validBizTypes = ['attendance', 'visit', 'report', 'customer'];
     if (!validBizTypes.includes(bizType)) {
-      return res.status(400).json({ code: 'BAD_REQUEST', message: '无效的业务类型' });
+      return res.status(400).json({ code: ErrorCodes.BAD_REQUEST.code, message: ErrorCodes.BAD_REQUEST.message });
     }
 
     // 校验文件魔数（防止伪造MIME类型上传非图片文件）
     if (!validateMagicNumber(file.path, file.mimetype)) {
       // 删除非法文件
       fs.unlink(file.path, () => {});
-      return res.status(400).json({ code: 'INVALID_FILE', message: '文件内容与MIME类型不匹配，仅允许图片文件' });
+      return res.status(400).json({ code: ErrorCodes.INVALID_FILE.code, message: ErrorCodes.INVALID_FILE.message });
     }
     const url = `/uploads/photos/${file.filename}`;
 

@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { pgPool } from '../config/database';
 import { generateToken, authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { AppError } from '../errors/AppError';
+import { ErrorCodes } from '../errors/errorCodes';
 import { validate } from '../middleware/validate';
 
 const router = Router();
@@ -111,7 +112,7 @@ const smsLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { code: 'RATE_LIMIT', message: '操作过于频繁' },
+  message: ErrorCodes.AUTH_RATE_LIMITED,
 });
 
 router.post('/send-code',
@@ -391,7 +392,7 @@ const regLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { code: 'RATE_LIMIT', message: '注册操作过于频繁，请稍后再试' },
+  message: ErrorCodes.REGISTER_RATE_LIMITED,
 });
 
 const regLog: Array<{time: string; admin: string; phone: string; ip: string}> = [];
@@ -418,13 +419,13 @@ router.post('/register',
       if (!validatePhone(phone)) throw new AppError('PHONE_FORMAT_INVALID');
 
       if (role === 'admin' && admin.role !== 'admin') {
-        return res.status(403).json({ code: 'FORBIDDEN', message: '只有管理员可以创建管理员账号' });
+        return res.status(403).json(ErrorCodes.AUTH_FORBIDDEN);
       }
 
       // 检查手机号是否已存在
       const exist = await pgPool.query('SELECT id FROM users WHERE phone = $1', [phone]);
       if (exist.rows.length > 0) {
-        return res.status(409).json({ code: 'USER_EXISTS', message: '该手机号已注册' });
+        return res.status(409).json(ErrorCodes.USER_EXISTS);
       }
 
       // 写入数据库

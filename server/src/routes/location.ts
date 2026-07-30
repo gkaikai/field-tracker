@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, query } from 'express-validator';
 import { authMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { ErrorCodes } from '../errors/errorCodes';
 import { pgPool } from '../config/database';
 import { haversineKm } from '../utils/geo';
 import { getMemAttendanceRecords } from '../shared/attendance_cache';
@@ -62,7 +63,7 @@ function addTrackPoint(userId: string, pt: TrackPoint) {
 
 function getTrackPoints(userId: string, startMs: number, endMs: number): TrackPoint[] {
   const points = trackStore.get(userId) || [];
-  return points.filter(p => p.timestamp >= startMs && p.timestamp <= endMs);
+  return points.filter(p => p.timestamp > startMs && p.timestamp <= endMs);
 }
 
 // ============================================================
@@ -177,12 +178,40 @@ router.post('/batch',
 router.get('/batch',
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
+      const user = (_req as any).user as JwtPayload;
       const now = Date.now();
       const users: any[] = [];
-      for (const [userId, loc] of liveLocations.entries()) {
-        if (now - loc.timestamp < 5 * 60 * 1000) {
-          users.push({ userId, name: loc.name, lng: loc.lng, lat: loc.lat, accuracy: loc.accuracy, speed: loc.speed, timestamp: loc.timestamp });
+
+      // 非管理员需要获取自己的部门，只返回同部门人员位置
+      let myDept: string | null = null;
+      const userDeptMap = new Map<string, string | null>();
+      if (user.role !== 'admin' && user.role !== 'manager') {
+        const deptResult = await pgPool.query('SELECT department_id FROM users WHERE id=$1', [user.userId]);
+        myDept = deptResult.rows[0]?.department_id || null;
+
+        // 批量查询所有在线用户的部门 ID，避免循环内逐个查库（N+1 性能问题）
+        const onlineIds = [...liveLocations.keys()].filter(id => {
+          const loc = liveLocations.get(id);
+          return loc && (now - loc.timestamp < 5 * 60 * 1000);
+        });
+        if (onlineIds.length > 0) {
+          const batchResult = await pgPool.query(
+            'SELECT id, department_id FROM users WHERE id = ANY($1::uuid[])',
+            [onlineIds]
+          );
+          for (const row of batchResult.rows) {
+            userDeptMap.set(row.id, row.department_id);
+          }
         }
+      }
+
+      for (const [userId, loc] of liveLocations.entries()) {
+        if (now - loc.timestamp >= 5 * 60 * 1000) continue;
+        if (myDept != null) {
+          const userDept = userDeptMap.get(userId) || null;
+          if (userDept !== myDept) continue;
+        }
+        users.push({ userId, name: loc.name, lng: loc.lng, lat: loc.lat, accuracy: loc.accuracy, speed: loc.speed, timestamp: loc.timestamp });
       }
       res.json({ users, total: users.length });
     } catch (err) {
@@ -272,9 +301,12 @@ router.get('/track/:userId',
 
       // 3. 中值滤波：移除孤立漂移点和连续漂移段
       // 策略：标记所有疑似漂移点，再识别连续漂移段整段移除
-      if (sinceMs === startMs && all.length > 3) {
-        const MAX_DRIFT_KM = 1.5;
-        const MAX_SKIP_KM = 2.5;
+      // 全量加载（sinceMs === startMs）：用严格参数 1.5km / 2.5km
+      // 增量加载（sinceMs !== startMs）：用宽松参数 3km / 5km，因为增量数据少，前后参考点不足
+      if (all.length > 3) {
+        const isFullLoad = sinceMs === startMs;
+        const MAX_DRIFT_KM = isFullLoad ? 1.5 : 3.0;
+        const MAX_SKIP_KM = isFullLoad ? 2.5 : 5.0;
 
         // 第一遍：标记每个点是否疑似漂移
         const driftFlags = new Array(all.length).fill(false);
@@ -368,7 +400,7 @@ router.get('/current/:userId',
       const user = (req as any).user as JwtPayload;
       // 非管理员只能查自己的位置
       if (user.role !== 'admin' && user.userId !== req.params.userId) {
-        return res.status(403).json({ code: 'AUTH_FORBIDDEN', message: '无权查看他人位置' });
+        return res.status(403).json({ code: ErrorCodes.AUTH_FORBIDDEN.code, message: ErrorCodes.AUTH_FORBIDDEN.message });
       }
       const loc = liveLocations.get(req.params.userId);
       if (!loc) {

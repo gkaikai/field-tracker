@@ -9,6 +9,7 @@ import 'package:workmanager/workmanager.dart';
 import 'config/app_config.dart';
 import 'config/amap_key.dart';
 import 'package:amap_flutter_location/amap_flutter_location.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,11 +84,8 @@ class _FieldTrackerAppState extends State<FieldTrackerApp> {
       navigatorKey: _navigatorKey,
       title: '外勤定位',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: Colors.blue,
-        useMaterial3: true,
-        brightness: Brightness.light,
-      ),
+      theme: FieldTrackerTheme.light,
+      darkTheme: FieldTrackerTheme.dark,
       home: widget.isLoggedIn ? const HomePage() : const LoginPage(),
       routes: {
         '/home': (context) => const HomePage(),

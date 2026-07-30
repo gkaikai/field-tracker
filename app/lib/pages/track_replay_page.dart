@@ -1,6 +1,7 @@
 // 轨迹回放页面 - 地图版（适配 amap_flutter_map 3.0.0 API）
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:math' show cos, sin, pi;
@@ -23,11 +24,15 @@ class TrackReplayPage extends StatefulWidget {
 }
 
 class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingObserver {
-  // ─── 页面级缓存（实例级，页面dispose后随GC释放） ───
-  final Map<String, List<Map<String, dynamic>>> _pointCache = {};
-  final Map<String, int?> _timestampCache = {};
-  static const int _maxCacheEntries = 10; // 最多缓存10天，超限淘汰最早
+  // ─── 静态缓存（跨页面实例存活，不随导航销毁） ───
+  static final Map<String, List<Map<String, dynamic>>> _pointCache = {};
+  static final Map<String, int?> _timestampCache = {};
+  static const int _maxCacheEntries = 10; // 最多缓存10天
+  // 磁盘缓存目录（APP文档目录，APP重启后仍存在）
+  static String? _cacheDir;
+  static const String _cacheFileName = 'track_cache_v2.json';
 
+  // ─── 实例状态 ───
   final ApiService _api = ApiService();
   final AuthService _auth = AuthService();
 
@@ -61,15 +66,19 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 1. 先用本地GPS显示当前位置（零网络开销，地图build时就能定位）
-    _syncLocationFromService();
-    // 2. 异步拉取轨迹和围栏数据
-    _loadTrack();
-    _loadFences();
-    // 3. 异步拉取最新位置（如果本地GPS还没数据）
-    _fetchCurrentLocation();
-    // 每15秒自动刷新轨迹（仅前台有效，省电省流量）
-    _startAutoRefresh();
+    // 0. 先从磁盘恢复缓存（静态，跨页面实例存活）
+    _loadCacheFromDisk().then((_) {
+      if (!mounted) return;
+      // 1. 先用本地GPS显示当前位置
+      _syncLocationFromService();
+      // 2. 异步拉取轨迹和围栏数据（此时_pointCache已有盘上数据）
+      _loadTrack();
+      _loadFences();
+      // 3. 异步拉取最新位置
+      _fetchCurrentLocation();
+      // 4. 每15秒自动刷新轨迹
+      _startAutoRefresh();
+    });
   }
 
   /// 启动自动刷新定时器（仅在可见时生效）
@@ -179,12 +188,14 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
         _timestampCache[cacheKey] = latestTimestamp;
       }
       _pointCache[cacheKey] = List.from(_points); // 深拷贝快照
-      // 淘汰超出上限的最旧缓存
+      // 淘汰最旧缓存（最多保留10天）
       while (_pointCache.length > _maxCacheEntries) {
-        final oldest = _pointCache.keys.reduce((a, b) => a.compareTo(b) < 0 ? a : b);
+        final oldest = _pointCache.keys.reduce((a, b) => _cacheAccessOrder(a, b));
         _pointCache.remove(oldest);
         _timestampCache.remove(oldest);
       }
+      // 异步写磁盘（永久的Documents目录）
+      _saveCacheToDisk();
     } catch (e, st) {
       if (!mounted) return;
       final detail = e.toString();
@@ -199,6 +210,84 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     } finally {
       _isLoadingTrack = false;
     }
+  }
+
+  /// 缓存淘汰排序：key格式 userId|yyyy-MM-dd，按日期字符串找到最旧的key
+  static String _cacheAccessOrder(String a, String b) {
+    final dateA = a.split('|').last;
+    final dateB = b.split('|').last;
+    return dateA.compareTo(dateB) <= 0 ? a : b;
+  }
+
+  // ──────────── 磁盘缓存持久化（Documents目录，跨APP重启） ────────────
+  /// 异步初始化缓存目录（首次调用时创建）
+  static Future<String> _ensureCacheDir() async {
+    if (_cacheDir != null) return _cacheDir!;
+    final dir = await getApplicationDocumentsDirectory();
+    _cacheDir = dir.path;
+    return _cacheDir!;
+  }
+
+  /// 从磁盘恢复缓存（兼容有/无版本号的格式）
+  Future<void> _loadCacheFromDisk() async {
+    try {
+      final dir = await _ensureCacheDir();
+      final file = File('$dir/$_cacheFileName');
+      if (!await file.exists()) return;
+      final json = jsonDecode(await file.readAsString());
+      if (json is! Map) return;
+
+      // 新版：{version: 2, data: {...}}
+      Map? raw = json;
+      if (raw['version'] == 2 && raw['data'] is Map) {
+        raw = raw['data'] as Map;
+      }
+      // 旧版：直接是 {key: {points, timestamp}}
+      for (final entry in raw.entries) {
+        final key = entry.key.toString();
+        final val = entry.value;
+        if (val is Map && val['points'] is List && val['timestamp'] != null) {
+          _pointCache[key] = List<Map<String, dynamic>>.from(val['points']);
+          _timestampCache[key] = val['timestamp'] as int?;
+        }
+      }
+      debugPrint('[TrackReplay] 磁盘缓存恢复: ${raw.length}天');
+    } catch (e) {
+      debugPrint('[TrackReplay] 加载磁盘缓存失败: $e');
+    }
+  }
+
+  /// 防抖定时器，避免频繁写磁盘
+  Timer? _cacheDebounceTimer;
+
+  /// 保存缓存到磁盘（防抖 + 原子写）
+  /// 防抖200ms：连续多次更新只触发一次写
+  /// 原子写：先写.tmp再mv，避免写半截断电丢数据
+  Future<void> _saveCacheToDisk() async {
+    // 取消上一次防抖定时器
+    _cacheDebounceTimer?.cancel();
+    _cacheDebounceTimer = Timer(const Duration(milliseconds: 200), () async {
+      try {
+        final dir = await _ensureCacheDir();
+        final map = <String, Map<String, dynamic>>{};
+        for (final key in _pointCache.keys) {
+          final pts = _pointCache[key];
+          final ts = _timestampCache[key];
+          if (pts != null && pts.isNotEmpty) {
+            map[key] = {'points': pts, 'timestamp': ts};
+          }
+        }
+        // 包装为带版本号的结构
+        final payload = jsonEncode({'version': 2, 'data': map});
+        // 原子写：先写.tmp文件，再rename替换原文件
+        final tmpFile = File('$dir/${_cacheFileName}.tmp');
+        final cacheFile = File('$dir/$_cacheFileName');
+        await tmpFile.writeAsString(payload);
+        await tmpFile.rename(cacheFile.path);
+      } catch (e) {
+        debugPrint('[TrackReplay] 保存磁盘缓存失败: $e');
+      }
+    });
   }
 
   /// 加载电子围栏并渲染为红色多边形
@@ -801,7 +890,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('导出轨迹失败: $e')),
+        const SnackBar(content: Text('导出轨迹失败'), backgroundColor: Colors.red),
       );
     }
   }
@@ -878,8 +967,6 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     return Scaffold(
       appBar: AppBar(
         title: const Text('轨迹回放'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.ios_share),
@@ -900,15 +987,17 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
           // 顶部：日期栏
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.grey[100],
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+            ),
             child: Row(
               children: [
-                const Icon(Icons.calendar_today, size: 16),
+                Icon(Icons.calendar_today, size: 16, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
                 Text(
                   '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
-                  style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface),
                 ),
                 const Spacer(),
                 Text(
@@ -918,30 +1007,19 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
               ],
             ),
           ),
-          // 统计摘要卡片
+          // 统计摘要卡片（4卡片横排）
           if (_points.length > 1)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: Colors.blue.withOpacity(0.03),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
-                  _statItem(Icons.route,
-                      '${_totalDistanceKm.toStringAsFixed(2)} km', '总距离'),
-                  Container(
-                    width: 1,
-                    height: 32,
-                    color: Colors.grey[300],
-                    margin: const EdgeInsets.symmetric(horizontal: 12),
-                  ),
-                  _statItem(Icons.speed,
-                      '${_avgSpeedKmh.toStringAsFixed(1)} km/h', '平均速度'),
-                  Container(
-                    width: 1,
-                    height: 32,
-                    color: Colors.grey[300],
-                    margin: const EdgeInsets.symmetric(horizontal: 12),
-                  ),
-                  _statItem(Icons.timer, _formatDuration(_totalDuration), '时长'),
+                  _statCard(context, '${_totalDistanceKm.toStringAsFixed(1)}', '总里程km', Icons.route, const Color(0xFF2563EB)),
+                  const SizedBox(width: 6),
+                  _statCard(context, '${_avgSpeedKmh.toStringAsFixed(1)}', '均速km/h', Icons.speed, const Color(0xFF16A34A)),
+                  const SizedBox(width: 6),
+                  _statCard(context, _formatDuration(_totalDuration), '总时长', Icons.timer, const Color(0xFF7C3AED)),
+                  const SizedBox(width: 6),
+                  _statCard(context, '${_points.length}', '轨迹点', Icons.gps_fixed, const Color(0xFFF59E0B)),
                 ],
               ),
             ),
@@ -1083,10 +1161,12 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
                   if (currentPos != null)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      color: Colors.blue.withOpacity(0.05),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.05),
+                      ),
                       child: Row(
                         children: [
-                          Icon(Icons.location_on, size: 14, color: Colors.blue[700]),
+                          Icon(Icons.location_on, size: 14, color: Theme.of(context).colorScheme.primary),
                           const SizedBox(width: 4),
                           Text(
                             '${currentPos['lat'].toStringAsFixed(4)}, ${currentPos['lng'].toStringAsFixed(4)}',
@@ -1152,7 +1232,7 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
                                         ? Icons.pause_circle_filled
                                         : Icons.play_circle_filled,
                                     size: 36,
-                                    color: Colors.blue),
+                                    color: Theme.of(context).colorScheme.primary),
                                 onPressed: _togglePlayback,
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
@@ -1171,30 +1251,25 @@ class _TrackReplayPageState extends State<TrackReplayPage> with WidgetsBindingOb
     );
   }
 
-  /// 统计项组件
-  Widget _statItem(IconData icon, String value, String label) {
+  /// 统计卡片组件（4卡片横排）
+  Widget _statCard(BuildContext context, String value, String label, IconData icon, Color color) {
     return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: Colors.blue[600]),
-              const SizedBox(width: 4),
-              Text(
-                value,
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-          ),
-        ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 1)),
+          ],
+        ),
+        child: Column(
+          children: [
+            Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: color)),
+            const SizedBox(height: 2),
+            Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+          ],
+        ),
       ),
     );
   }

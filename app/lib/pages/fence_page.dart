@@ -4,12 +4,14 @@ import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
-import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 import 'fence_edit_page.dart';
+
+import '../services/route_guard.dart';
+import '../services/app_role.dart';
 
 class FencePage extends StatefulWidget {
   const FencePage({super.key});
@@ -65,11 +67,18 @@ class _FencePageState extends State<FencePage>
     zoom: 14,
   );
 
-  bool get _isAdmin => _auth.role == 'admin';
+  bool get _isAdmin => AppRole.isAdmin(_auth.role);
 
   @override
   void initState() {
     super.initState();
+    // 非管理员跳转
+    if (!RouteGuard.isAdmin()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      });
+      return;
+    }
     _tabController = TabController(length: _isAdmin ? 3 : 2, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging && mounted) setState(() {});
@@ -137,7 +146,7 @@ class _FencePageState extends State<FencePage>
       if (mounted) {
         setState(() => _fencesLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('加载围栏列表失败: $e'), backgroundColor: Colors.red));
+            const SnackBar(content: Text('加载围栏列表失败'), backgroundColor: Colors.red));
       }
     }
   }
@@ -156,7 +165,7 @@ class _FencePageState extends State<FencePage>
       if (mounted) {
         setState(() => _eventsLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('加载进出事件失败: $e'), backgroundColor: Colors.red));
+            const SnackBar(content: Text('加载进出事件失败'), backgroundColor: Colors.red));
       }
     }
   }
@@ -208,7 +217,7 @@ class _FencePageState extends State<FencePage>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('删除失败: $e'), backgroundColor: Colors.red));
+            const SnackBar(content: Text('删除失败'), backgroundColor: Colors.red));
       }
     }
   }
@@ -232,8 +241,7 @@ class _FencePageState extends State<FencePage>
   /// 调用高德POI文本搜索API获取模糊建议列表（替代 inputtips，支持模糊搜索）
   Future<void> _fetchSuggestions(String keyword) async {
     try {
-      final dio = Dio();
-      final resp = await dio.get(
+      final resp = await ApiService.amapDio.get(
         'https://restapi.amap.com/v3/place/text',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
@@ -282,8 +290,7 @@ class _FencePageState extends State<FencePage>
       _showSuggestions = false;
     });
     try {
-      final dio = Dio();
-      final resp = await dio.get(
+      final resp = await ApiService.amapDio.get(
         'https://restapi.amap.com/v3/place/text',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
@@ -330,7 +337,7 @@ class _FencePageState extends State<FencePage>
       // POI搜不到时回退到地理编码（处理纯地址如"深圳市南山区"）
       if (target == null) {
         try {
-          final geoResp = await dio.get(
+          final geoResp = await ApiService.amapDio.get(
             'https://restapi.amap.com/v3/geocode/geo',
             queryParameters: {
               'key': AMapConfig.webServiceKey,
@@ -404,7 +411,7 @@ class _FencePageState extends State<FencePage>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('搜索失败: $e'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('搜索失败'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -466,7 +473,7 @@ class _FencePageState extends State<FencePage>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('创建失败: $e'), backgroundColor: Colors.red));
+            const SnackBar(content: Text('创建失败'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _circleSaving = false);
@@ -514,7 +521,7 @@ class _FencePageState extends State<FencePage>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('创建失败: $e'), backgroundColor: Colors.red));
+            const SnackBar(content: Text('创建失败'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _polygonSaving = false);
@@ -538,8 +545,6 @@ class _FencePageState extends State<FencePage>
     return Scaffold(
       appBar: AppBar(
         title: const Text('电子围栏'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
           tabs: tabs,

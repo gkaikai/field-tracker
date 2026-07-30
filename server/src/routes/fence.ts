@@ -3,6 +3,7 @@ import { body, query } from 'express-validator';
 import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
+import { ErrorCodes } from '../errors/errorCodes';
 import { AppError } from '../errors/AppError';
 import { haversineDistance, pointInPolygon } from '../utils/geo';
 
@@ -123,7 +124,7 @@ router.put('/:id',
        FROM geo_fences WHERE id = $1`, [id]
       );
       if (existing.rows.length === 0) {
-        return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+        return res.status(404).json({ code: ErrorCodes.FENCE_NOT_FOUND.code, message: ErrorCodes.FENCE_NOT_FOUND.message });
       }
       const cur = existing.rows[0];
 
@@ -172,7 +173,7 @@ router.delete('/:id',
         [id],
       );
       if (result.rows.length === 0) {
-        return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+        return res.status(404).json({ code: ErrorCodes.FENCE_NOT_FOUND.code, message: ErrorCodes.FENCE_NOT_FOUND.message });
       }
       res.json({ success: true, message: '围栏已删除' });
     } catch (err) {
@@ -288,7 +289,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       [id],
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ code: 'FENCE_NOT_FOUND', message: '围栏不存在' });
+      return res.status(404).json({ code: ErrorCodes.FENCE_NOT_FOUND.code, message: ErrorCodes.FENCE_NOT_FOUND.message });
     }
     res.json(formatFence(result.rows[0]));
   } catch (err) {
@@ -308,7 +309,7 @@ router.post('/auto-check', async (req: Request, res: Response, next: NextFunctio
     const timestamps = autoCheckRateMap.get(user.userId) || [];
     const recentTimestamps = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
     if (recentTimestamps.length >= RATE_LIMIT_MAX) {
-      return res.status(429).json({ code: 'RATE_LIMITED', message: '请求过于频繁，请稍后再试' });
+      return res.status(429).json({ code: ErrorCodes.FENCE_RATE_LIMITED.code, message: ErrorCodes.FENCE_RATE_LIMITED.message });
     }
     recentTimestamps.push(now);
     autoCheckRateMap.set(user.userId, recentTimestamps);

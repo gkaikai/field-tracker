@@ -33,6 +33,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode
         versionName = flutterVersionName
+
+        // 高德地图 Key — 从环境变量注入，禁止硬编码
+        // 构建时: export AMAP_ANDROID_KEY=xxx && flutter build apk
+        val amapKey = System.getenv("AMAP_ANDROID_KEY") ?: ""
+        manifestPlaceholders["AMAP_KEY"] = amapKey
     }
 
     buildTypes {

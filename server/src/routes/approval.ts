@@ -1,7 +1,7 @@
 // 审批流程 - 请假/出差/报销
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, param, query } from 'express-validator';
-import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
+import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
 
@@ -115,10 +115,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// PUT /api/v1/approvals/:id/approve — 审批操作（管理员）
+// PUT /api/v1/approvals/:id/approve — 审批操作（管理员/经理）
 router.put('/:id/approve',
   authMiddleware,
-  roleMiddleware('admin'),
+  adminMiddleware,
   validate([param('id').isUUID().withMessage('无效的审批ID'), body('status').isIn(['approved', 'rejected']), body('rejectReason').optional()]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

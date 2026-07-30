@@ -1,11 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import 'api_service.dart';
 import 'error_codes.dart';
+import 'app_role.dart';
 
-/// 认证服务
-class AuthService {
+/// 认证服务 — 单例，继承 ChangeNotifier 支持响应式监听
+class AuthService extends ChangeNotifier {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
 
@@ -27,6 +29,10 @@ class AuthService {
   String? get role => _role;
   bool get isLoggedIn => _token != null;
 
+  /// 使用 AppRole 枚举判断是否为管理角色（替代魔法字符串）
+  bool get isAdmin => AppRole.isAdmin(_role);
+  bool get isEmployee => _role == AppRole.employee;
+
   /// 从本地恢复登录态，并通过服务端验证Token有效性
   Future<bool> restoreSession() async {
     try {
@@ -42,35 +48,19 @@ class AuthService {
       _api.setToken(_token);
       try {
         await _api.get('/api/v1/auth/me');
+        notifyListeners();
         return true;
       } catch (_) {
         // Token无效，清除本地缓存
-        _token = null;
-        _userId = null;
-        _userCode = null;
-        _userName = null;
-        _department = null;
-        _role = null;
-        _api.setToken(null);
-        await prefs.remove('token');
-        await prefs.remove('user_id');
-        await prefs.remove('user_code');
-        await prefs.remove('user_name');
-        await prefs.remove('department');
-        await prefs.remove('role');
+        _clearState();
         return false;
       }
     } catch (_) {
-      // 极端兜底：SharedPreferences或API调用异常，返回false让用户重新登录
       return false;
     }
   }
 
   /// 登录
-  ///
-  /// 返回用户数据 map（含 token、userId 等）。
-  /// 业务错误码（10003 账号不存在、10004 密码错误、10005 账号锁定等）
-  /// 由 ApiService 拦截器统一弹出 Toast，此处抛出 [ApiException] 供 UI 层判断。
   Future<Map<String, dynamic>> login(String phone, String password) async {
     try {
       final resp = await _api.post(AppConfig.apiLogin, data: {
@@ -89,7 +79,6 @@ class AuthService {
         );
       }
 
-      // 虽然拦截器已处理业务 code，但双重校验确保安全
       final int? bizCode = data['code'] as int?;
       if (bizCode != null && bizCode != 200 && ErrorCode.isBusinessError(bizCode)) {
         throw ApiException(
@@ -100,10 +89,8 @@ class AuthService {
       }
 
       _token = data['token'] as String?;
-      // 兼容多种返回格式：{user:{id:...,name:...}}、{userId:...,name:...} 或扁平格式
       _userId = (data['user']?['id'] ?? data['userId'] ?? '').toString();
       _userCode = (data['user']?['userCode'] ?? data['userCode'] ?? '').toString();
-      // 服务端未返回名称时fallback到'用户'，避免在UI层显示手机号造成隐私泄露
       _userName = (data['user']?['name'] ?? data['name']?.toString()) ?? '用户';
       _department = (data['user']?['department'] ?? data['departmentId']?.toString());
       _role = (data['user']?['role'] ?? data['role']?.toString())?.toString();
@@ -121,15 +108,14 @@ class AuthService {
         if (_role != null) {
           await prefs.setString('role', _role!);
         }
+        notifyListeners();
       }
 
       return data;
     } on DioException catch (e) {
-      // 拦截器已抛出带 ApiException 的 DioException，提取后重抛
       if (e.error is ApiException) {
         rethrow;
       }
-      // 网络异常等已在拦截器弹出 toast，此处统一抛 ApiException 避免 UI 层暴露技术细节
       throw ApiException(
         code: 10010,
         message: _networkMessage(e),
@@ -139,13 +125,7 @@ class AuthService {
 
   /// 登出
   Future<void> logout() async {
-    _token = null;
-    _userId = null;
-    _userCode = null;
-    _userName = null;
-    _department = null;
-    _role = null;
-    _api.setToken(null);
+    _clearState();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     await prefs.remove('user_id');
@@ -153,9 +133,20 @@ class AuthService {
     await prefs.remove('user_name');
     await prefs.remove('department');
     await prefs.remove('role');
+    notifyListeners();
   }
 
-  /// 将 DioException 映射为简单提示文案
+  /// 清除内存中的登录态
+  void _clearState() {
+    _token = null;
+    _userId = null;
+    _userCode = null;
+    _userName = null;
+    _department = null;
+    _role = null;
+    _api.setToken(null);
+  }
+
   static String _networkMessage(DioException e) {
     return switch (e.type) {
       DioExceptionType.connectionTimeout ||

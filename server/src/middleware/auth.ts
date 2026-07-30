@@ -57,4 +57,4 @@ export function roleMiddleware(...allowedRoles: string[]) {
 }
 
 // 管理员权限中间件（兼容旧代码）
-export const adminMiddleware = roleMiddleware('admin');
+export const adminMiddleware = roleMiddleware('admin', 'manager');

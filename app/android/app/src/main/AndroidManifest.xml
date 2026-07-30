@@ -30,10 +30,11 @@
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 
-        <!-- 高德地图 SDK 配置 -->
+        <!-- 高德地图 SDK 配置 — 密钥通过 build.gradle manifestPlaceholders 注入 -->
+        <!-- 构建时: export AMAP_ANDROID_KEY=xxx && flutter build apk -->
         <meta-data
             android:name="com.amap.api.v2.apikey"
-            android:value="0e00439a3a2b04282e78083ea7a9b19d" />
+            android:value="${AMAP_KEY}" />
 
         <meta-data
             android:name="flutterEmbedding"

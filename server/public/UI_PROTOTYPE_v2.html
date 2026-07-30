@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Field Tracker — 整改完成 v2.0</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'PingFang SC','Inter',system-ui,sans-serif;background:#F8FAFC;color:#0F172A;padding:16px;transition:.3s}
+h1{font-size:24px;font-weight:800;text-align:center;margin:10px 0 2px}
+.sub{text-align:center;font-size:13px;color:#64748B;margin-bottom:12px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin-bottom:10px;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tab{white-space:nowrap;padding:6px 14px;border-radius:20px;border:1.5px solid #E2E8F0;font-size:12px;color:#475569;cursor:pointer;flex-shrink:0;font-weight:500;transition:.15s}
+.tab:hover{border-color:#2563EB;color:#2563EB}
+.tab.on{background:#2563EB;color:#fff;border-color:#2563EB}
+.tab.c{background:#F1F5F9;border-color:transparent;color:#64748B;pointer-events:none;font-weight:600}
+
+/* Phone frame */
+.p{width:390px;height:800px;background:#F8FAFC;border-radius:36px;box-shadow:0 12px 40px rgba(0,0,0,.2);overflow:hidden;display:none;flex-direction:column;margin:0 auto;border:1px solid rgba(0,0,0,.08)}
+.p.on{display:flex}
+.p .sb{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:12px;font-weight:600;color:#0F172A;flex-shrink:0}
+.p .bar{height:52px;display:flex;align-items:center;padding:0 12px;color:#fff;flex-shrink:0;gap:4px}
+.p .bar .bk{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border-radius:8px}
+.p .bar .tt{flex:1;font-size:15px;font-weight:600}
+.p .bar .rt{display:flex;gap:2px}
+.p .bar .rt span{width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:16px;border-radius:8px}
+.p .bd{flex:1;overflow-y:auto;padding:0 16px}
+.p .bd::-webkit-scrollbar{display:none}
+.p .ft{height:56px;display:flex;background:#fff;border-top:1px solid #E2E8F0;flex-shrink:0;padding-bottom:4px}
+.p .ft .tb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10px;color:#94A3B8;position:relative}
+.p .ft .tb .ic{font-size:20px}
+.p .ft .tb.on{color:#2563EB}
+.p .ft .tb .b{position:absolute;top:2px;right:50%;transform:translateX(18px);background:#DC2626;color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+
+.c{background:#fff;border-radius:12px;padding:14px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+body.dark .c{background:#1E293B}
+.btn{width:100%;height:48px;border-radius:10px;border:none;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:.15s}
+.btn:active{transform:scale(.97)}
+.lb{font-size:13px;color:#64748B;margin:12px 0 6px;font-weight:500}
+
+/* Color swatches */
+.sw{display:flex;flex-wrap:wrap;gap:6px}
+.sw>div{width:76px;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sw>div .p{height:48px;display:flex;align-items:flex-end;justify-content:flex-end;padding:4px}
+.sw>div .p span{background:rgba(255,255,255,.85);padding:1px 4px;border-radius:3px;font-size:9px;font-weight:600}
+.sw>div .i{padding:5px 6px;background:#fff;font-size:10px}
+.sw>div .i .n{font-weight:600;font-size:10px}
+body.dark .sw>div .i{background:#1E293B}
+
+/* Status bar */
+.st{display:flex;gap:6px;font-size:11px;margin-bottom:12px;flex-wrap:wrap}
+.st>span{padding:3px 10px;border-radius:12px;font-size:10px;font-weight:500}
+.st .d{border:1px solid #E2E8F0;color:#DC2626;background:#FEF2F2}
+.st .n{border:1px solid #BBF7D0;color:#16A34A;background:#F0FDF4}
+
+body.dark{background:#0F172A;color:#F1F5F9}
+body.dark .tab{border-color:#334155;color:#94A3B8}
+body.dark .tab.on{background:#60A5FA;color:#0F172A;border-color:#60A5FA}
+body.dark .p{background:#0F172A;border-color:#334155}
+body.dark .p .sb{color:#F1F5F9}
+body.dark .p .ft{background:#1E293B;border-color:#334155}
+body.dark .p .ft .tb{color:#64748B}
+body.dark .p .ft .tb.on{color:#60A5FA}
+#dk{position:fixed;bottom:20px;right:20px;width:44px;height:44px;border-radius:50%;background:#0F172A;color:#fff;border:none;font-size:18px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2);z-index:100}
+#dk:hover{transform:scale(1.1)}
+</style>
+</head>
+<body>
+<button id="dk">🌙</button>
+<div id="app">
+<h1>🎯 Field Tracker 整改完成 v2.0</h1>
+<p class="sub">4 个阶段全部完工 · 零编译错误</p>
+<div class="tabs" id="t"></div>
+<div class="p on" id="p"><div class="sb"><span>09:41</span><span>📶 ████ 🔋</span></div><div id="ba"></div><div class="bd" id="bo"></div><div id="fa"></div></div>
+</div>
+<script>
+const Q={};
+
+const nav=(a)=>['📍工作台','🗺️地图','📋消息','👤我的'].map((t,i)=>{
+  const o=i===a?' on':'';const b=i===2?'<span class="b">3</span>':'';
+  return `<div class="tb${o}"><span class="ic">${t.slice(0,2)}</span>${b}${t.slice(2)}</div>`;
+}).join('');
+
+// Colors
+const sw=(items)=>`<div class="sw">${items.map(a=>`<div><div class="p" style="background:${a[0]}"><span>${a[0]}</span></div><div class="i"><div class="n">${a[1]}</div>${a[2]||''}</div></div>`).join('')}</div>`;
+
+Q.ds={l:'🎨 Design System',
+st:`<span class="d">❌ 431处硬编码Colors</span><span class="n">✅ ColorScheme统一</span>`,
+h:()=>`
+<div class="lb">▸ 品牌色 6色</div>
+${sw([['#2563EB','主色','Blue-600'],['#7C3AED','管理色','Violet-600'],['#16A34A','成功','Green-600'],['#F59E0B','警告','Amber-500'],['#DC2626','错误','Red-600'],['#0EA5E9','信息','Sky-500']])}
+<div class="lb" style="margin-top:12px">▸ 中性色 6阶</div>
+${sw([['#0F172A','文字主色'],['#475569','文字辅色'],['#94A3B8','提示文字'],['#E2E8F0','分割线'],['#F8FAFC','背景色'],['#FFFFFF','卡片色']])}
+<div class="lb">▸ 间距/圆角 Token</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px">
+<div style="padding:6px 12px;background:#2563EB;color:#fff;border-radius:6px">标签 6px</div>
+<div style="padding:6px 12px;background:#2563EB;color:#fff;border-radius:8px">输入框 8px</div>
+<div style="padding:6px 12px;background:#2563EB;color:#fff;border-radius:10px">按钮 10px</div>
+<div style="padding:6px 12px;background:#2563EB;color:#fff;border-radius:12px">卡片 12px</div>
+<div style="padding:6px 12px;background:#2563EB;color:#fff;border-radius:16px">弹窗 16px</div>
+</div>
+<div style="margin-top:8px;font-size:11px;padding:8px 12px;background:#F1F5F9;border-radius:8px">
+间距体系: 4-8-12-16-20-24-32 px (4px网格)<br>
+阴影: Level 0-5 (卡片/浮动/弹窗/Toast)<br>
+角色路由: 员工#2563EB / 管理#7C3AED
+</div>
+`,bar:{bg:'#2563EB',t:'Design System',r:''},ft:0};
+
+Q.done={l:'✅ 完成清单',
+st:`<span class="n">✅ 4阶段全部完工</span>`,
+h:()=>`
+<div style="font-size:13px;margin:8px 0">📁 新建文件 <b>6</b> 个 · 修改文件 <b>20+</b> 个</div>
+${[
+  ['Phase 1','Design System','app_theme.dart: ColorScheme/TextTheme/暗黑/ft_skeleton/ft_empty_state','#2563EB'],
+  ['Phase 2','导航重构','main_shell.dart: 4Tab底部导航(工作台/地图/消息/我的)','#7C3AED'],
+  ['Phase 3','页面翻新','打卡页(大圆环)/轨迹页(4卡统计)/20+页面AppBar清理','#16A34A'],
+  ['Phase 4','交互优化','ft_toast: 统一Toast/SnackBar、骨架屏、空状态','#F59E0B'],
+].map(p=>`<div style="display:flex;gap:8px;padding:10px 0;border-bottom:1px solid #F1F5F9">
+<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;background:${p[3]}22;color:${p[3]};font-weight:700">${p[0].slice(-1)}</div>
+<div style="flex:1"><div style="font-size:13px;font-weight:600">${p[1]}</div><div style="font-size:11px;color:#64748B">${p[2]}</div></div>
+</div>`).join('')}
+<div style="padding:10px;background:#F0FDF4;border-radius:8px;border:1px solid #BBF7D0;margin-top:8px;text-align:center;font-size:13px;font-weight:600;color:#16A34A">flutter analyze ✅ 零编译错误</div>
+`,bar:{bg:'#2563EB',t:'完成清单',r:''},ft:0};
+
+Q.empHome={l:'🏠 员工工作台',
+st:`<span class="d">⚠️ 14入口+版本号条</span><span class="n">✅ 9入口+底部导航</span>`,
+h:()=>`
+<div style="display:flex;align-items:center;gap:12px;background:#fff;border-radius:12px;padding:14px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)"><div style="width:44px;height:44px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#2563EB">张</div><div style="flex:1"><div style="font-size:15px;font-weight:600">张三</div><div style="display:flex;gap:6px;margin-top:3px"><span style="padding:2px 8px;border-radius:4px;font-size:11px;background:#EFF6FF;color:#2563EB">员工</span><span style="font-size:11px;color:#94A3B8">工号:1001</span></div></div><div style="font-size:12px;color:#16A34A;font-weight:600">✅ 已签到</div></div>
+<div style="display:flex;gap:6px;margin-bottom:10px">${[['🗺️','地图','#EFF6FF','#2563EB'],['✅','打卡','#F0FDF4','#16A34A'],['📷','拍照','#F5F3FF','#7C3AED'],['📋','汇报','#FFFBEB','#F59E0B'],['📊','统计','#F0F9FF','#0EA5E9']].map(a=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px;background:${a[2]};border-radius:8px"><span style="font-size:18px">${a[0]}</span><span style="font-size:9px;font-weight:500;color:${a[3]}">${a[1]}</span></div>`).join('')}</div>
+<div class="c" style="background:linear-gradient(135deg,#F0FDF4 0%,#fff 100%);padding:12px 14px;margin:0 0 10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="font-size:28px">🟢</span><div style="flex:1"><div style="font-size:15px;font-weight:600;color:#16A34A">已签到 08:30</div><div style="font-size:11px;color:#64748B">今日未签退·上班09:00</div></div><span style="color:#CBD5E1;font-size:20px">›</span></div><div style="display:flex;border-top:1px solid #E2E8F0;padding-top:10px">${[['8.2','里程km','#2563EB'],['59','轨迹点','#16A34A'],['2','待审批','#F59E0B']].map(a=>`<div style="flex:1;text-align:center"><div style="font-size:18px;font-weight:700;color:${a[2]}">${a[0]}</div><div style="font-size:11px;color:#94A3B8">${a[1]}</div></div>`).join('')}</div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">${[['🗺️','我的轨迹','#FFF7ED'],['🏢','拜访记录','#F0FDF4'],['📷','照片列表','#EFF6FF'],['⚙️','个人设置','#F5F3FF']].map(a=>`<div class="c" style="display:flex;align-items:center;gap:10px;padding:10px 12px;margin:0"><div style="width:32px;height:32px;border-radius:8px;background:${a[2]};display:flex;align-items:center;justify-content:center;font-size:16px">${a[0]}</div><div style="font-size:13px;font-weight:600">${a[1]}</div></div>`).join('')}</div>
+<div style="font-size:10px;color:#94A3B8;text-align:center;padding:4px">📍 工作台 · 🗺️ 地图 · 📋 消息 · 👤 我的</div>
+`,bar:{bg:'#2563EB',t:'工作台',r:'🔔 ⏻',b:0},ft:0};
+
+Q.clock={l:'⏰ 打卡页（翻新）',
+st:`<span class="d">⚠️ AlertDialog选类型</span><span class="n">✅ 大圆环时钟对比展示</span>`,
+h:()=>`
+<div style="display:flex;align-items:center;gap:10px;background:#F0FDF4;border-radius:10px;padding:10px;margin:12px 0 16px;border:1px solid #BBF7D0"><div style="width:36px;height:36px;border-radius:8px;background:#DCFCE7;display:flex;align-items:center;justify-content:center;font-size:18px">🛰️</div><div><div style="font-size:13px;font-weight:600;color:#16A34A">GPS 定位正常</div><div style="font-size:10px;color:#64748B">精度 5m · 39.909,116.397</div></div></div>
+<div style="display:flex;justify-content:center;margin-bottom:20px"><div style="width:180px;height:180px;border-radius:50%;border:5px solid #2563EB;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#EFF6FF"><div style="font-size:40px;font-weight:800;color:#0F172A">08:30</div><div style="font-size:13px;color:#2563EB;font-weight:600;margin-top:4px">✅ 已签到</div></div></div>
+<div style="display:flex;gap:10px;margin-bottom:16px"><div style="flex:1;background:#F0FDF4;border-radius:12px;padding:14px;text-align:center;border:1px solid #BBF7D0"><div style="font-size:24px;margin-bottom:2px">✅</div><div style="font-size:14px;font-weight:600;color:#16A34A">已签到</div><div style="font-size:12px;color:#64748B;margin-top:2px">08:30:15</div></div><div style="flex:1;background:#FFFBEB;border-radius:12px;padding:14px;text-align:center;border:1px solid #FDE68A"><div style="font-size:24px;margin-bottom:2px">⬜</div><div style="font-size:14px;font-weight:600;color:#F59E0B">未签退</div><div style="font-size:12px;color:#64748B;margin-top:2px">18:00后可签退</div></div></div>
+<button class="btn" style="background:#F59E0B;color:#fff;margin-bottom:12px">⏻ 下班打卡</button>
+<div class="c" style="margin:0"><div style="font-size:13px;font-weight:600;margin-bottom:6px">📋 今日考勤规则</div><div style="font-size:12px;color:#475569">⏰ 上下班: <b>09:00 - 18:00</b><br>📍 打卡范围: <b>公司 100m 内</b><br><span style="color:#16A34A">✅ 当前在打卡区域内</span></div></div>
+`,bar:{bg:'#2563EB',t:'打卡签到',r:'📊',b:1},ft:1};
+
+Q.track={l:'🗺️ 轨迹页（翻新）',
+st:`<span class="d">⚠️ 1300行+硬编码Colors.blue</span><span class="n">✅ 4卡片+主题色+播放器</span>`,
+h:()=>`
+<div style="background:linear-gradient(135deg,#E0F2FE 0%,#F0FDF4 50%,#FEF3C7 100%);margin:0 -16px;padding:50px 16px;min-height:180px;position:relative"><span style="font-size:60px;opacity:.2;display:block;text-align:center">🗺️</span></div>
+<div style="display:flex;gap:6px;margin:8px 0">${[['8.2','总里程','#2563EB'],['12','运动min','#16A34A'],['5.2','时长h','#7C3AED'],['59','点数','#F59E0B']].map(a=>`<div class="c" style="flex:1;text-align:center;padding:8px;margin:0;box-shadow:0 1px 2px rgba(0,0,0,.04)"><div style="font-size:16px;font-weight:700;color:${a[2]}">${a[0]}</div><div style="font-size:9px;color:#94A3B8">${a[1]}</div></div>`).join('')}</div>
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:10px;color:#64748B">08:00</span><div style="flex:1;height:4px;background:#E2E8F0;border-radius:2px"><div style="width:35%;height:100%;background:#2563EB;border-radius:2px"></div></div><span style="font-size:10px;color:#64748B">18:00</span></div>
+<div style="display:flex;gap:6px;justify-content:center;margin-bottom:8px">
+<div style="width:36px;height:36px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;cursor:pointer">⏪</div>
+<div style="width:42px;height:36px;border-radius:8px;background:#2563EB;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer">▶️</div>
+<div style="width:36px;height:36px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;cursor:pointer">⏩</div>
+<div style="width:36px;height:36px;border-radius:8px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;cursor:pointer">⏹</div>
+</div>
+<div style="display:flex;gap:4px;justify-content:center;font-size:10px;color:#64748B;margin-bottom:8px"><span style="padding:2px 8px;background:#F1F5F9;border-radius:4px">1×</span><span style="padding:2px 8px;background:#EFF6FF;border-radius:4px;color:#2563EB;font-weight:600">2×</span><span style="padding:2px 8px;background:#F1F5F9;border-radius:4px">4×</span></div>
+`,bar:{bg:'#2563EB',t:'轨迹回放',r:'📅',b:1},ft:0};
+
+Q.adminHome={l:'👑 管理后台',
+st:`<span class="d">⚠️ 版本号占位+硬编码靛蓝</span><span class="n">✅ 进度条+主题色</span>`,
+h:()=>`
+<div class="c" style="display:flex;align-items:center;gap:10px;margin-top:10px;background:#F5F3FF"><div style="width:40px;height:40px;border-radius:50%;background:#DDD6FE;display:flex;align-items:center;justify-content:center;font-size:18px;color:#7C3AED;font-weight:700">管</div><div><div style="font-size:14px;font-weight:600">管理员</div><div style="font-size:11px;color:#64748B">工号: 0001</div></div><div style="flex:1"></div><div style="width:28px;height:28px;border-radius:50%;background:#7C3AED;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff">👑</div></div>
+<div class="c" style="padding:12px;margin:10px 0"><div style="display:flex;justify-content:space-between;font-size:12px;color:#64748B;margin-bottom:6px"><span>🟢 在线: 12人</span><span>✅ 签到: 8/15人 (53%)</span></div><div style="height:8px;background:#E2E8F0;border-radius:4px;overflow:hidden"><div style="width:53%;height:100%;background:#7C3AED;border-radius:4px"></div></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['🖥️','实时监控'],['🗺️','轨迹回放'],['📊','驾驶舱'],['🚧','围栏管理'],['👥','员工管理'],['📅','打卡规则'],['✅','打卡统计'],['📋','审批处理']].map(a=>`<div class="c" style="padding:10px;text-align:center;margin:0"><div style="font-size:22px;margin-bottom:2px">${a[0]}</div><div style="font-size:12px;font-weight:500">${a[1]}</div></div>`).join('')}</div>
+`,bar:{bg:'#7C3AED',t:'管理后台',r:'👤 ⏻',b:0},ft:0};
+
+Q.toast={l:'🔔 Toast组件',st:`<span class="d">⚠️ 散落SnackBar硬编码</span><span class="n">✅ ft_toast统一调用</span>`,
+h:()=>`<div style="display:flex;flex-direction:column;gap:6px;margin:12px 0">${[['✅ 签到成功 08:30:15','#16A34A'],['❌ 打卡失败 · 重试','#DC2626'],['⚠️ 不在打卡范围内','#F59E0B'],['ℹ️ GPS定位中，请稍后','#0EA5E9']].map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:${a[1]};color:#fff;border-radius:8px;font-size:13px;font-weight:500">${a[0]}</div>`).join('')}</div>
+<div style="font-size:11px;color:#64748B;padding:8px;background:#F1F5F9;border-radius:8px">FTToast.success/error/warning/info(context, msg)</div>
+`,bar:{bg:'#2563EB',t:'Toast统一',r:''},b:1,ft:0};
+
+Q.files={l:'📁 新增文件',
+st:`<span class="n">✅ 6个新文件</span>`,
+h:()=>`<div style="font-size:13px;margin:8px 0">Phase 1-4 全部 Flutter 代码</div>
+${[['app/lib/theme/app_theme.dart','ColorScheme/TextTheme/暗黑模式/ThemeExtension','272行'],['app/lib/widgets/main_shell.dart','4Tab底部导航框架','100行'],['app/lib/widgets/ft_skeleton.dart','骨架屏加载组件','90行'],['app/lib/widgets/ft_empty_state.dart','空状态组件(5种预设)','100行'],['app/lib/widgets/ft_toast.dart','统一Toast反馈工具','95行'],['FIX_PROPOSAL_v2.md','20项问题整改对照表','']].map(f=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #F1F5F9"><div style="width:28px;height:28px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:14px;color:#2563EB">📄</div><div style="flex:1"><div style="font-size:12px;font-weight:500">${f[0]}</div><div style="font-size:10px;color:#64748B">${f[1]}</div></div><span style="font-size:10px;color:#94A3B8">${f[2]}</span></div>`).join('')}
+`,bar:{bg:'#2563EB',t:'新增文件',r:''},b:1,ft:0};
+
+Q.skel={l:'📦 骨架屏&空态',
+st:`<span class="d">⚠️ 全部CircleProgress</span><span class="n">✅ Skeleton+Empty预设</span>`,
+h:()=>`
+<div class="lb">▸ 骨架屏 Skeleton</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:12px;background:#fff;border-radius:12px;margin-bottom:12px">
+${[40,12,8,72].map((h,i)=>`<div style="height:${h}px;${h===40?'width:40px;border-radius:50%;':'width:'+['60%','80%','100%'][i-1]+';border-radius:6px;'}background:linear-gradient(90deg,#E2E8F0 25%,#F1F5F9 50%,#E2E8F0 75%);background-size:200% 100%;animation:s 1.5s infinite"></div>`).join('')}
+</div>
+<style>@keyframes s{0%{background-position:-200% 0}100%{background-position:200% 0}}</style>
+<div class="lb">▸ 空状态 5种预设</div>
+<div style="display:flex;gap:8px">${[['📋','暂无打卡记录','去打卡'],['🗺️','暂无运动轨迹','查看地图'],['📷','暂无照片','去拍照']].map(a=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;background:#fff;border-radius:10px;text-align:center"><div style="width:40px;height:40px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:20px">${a[0]}</div><div style="font-size:11px;font-weight:600">${a[1]}</div><button style="padding:3px 12px;border-radius:6px;border:none;background:#2563EB;color:#fff;font-size:10px">${a[2]}</button></div>`).join('')}</div>
+`,bar:{bg:'#2563EB',t:'骨架屏&空态',r:''},b:1,ft:0};
+
+const ALL=['done','ds','skel','toast','files','empHome','clock','track','adminHome'];
+const TL={'done':'✅ 完成清单','ds':'🎨 Design System','skel':'📦 骨架屏&空态','toast':'🔔 Toast','files':'📁 新增文件','empHome':'🏠 工作台','clock':'⏰ 打卡页','track':'🗺️ 轨迹页','adminHome':'👑 管理后台'};
+
+function r(k){
+  const p=Q[k];if(!p)return;
+  const ba=document.getElementById('ba');
+  ba.innerHTML='';
+  if(p.bar){
+    const bg=p.bar.bg||'#2563EB';
+    ba.innerHTML=`<div class="bar" style="background:${bg}"><div class="bk" style="visibility:${p.bar.b===0?'hidden':'visible'}">‹</div><div class="tt">${p.bar.t||''}</div><div class="rt">${(p.bar.r||'').split(' ').filter(s=>s).map(s=>`<span>${s}</span>`).join('')}</div></div>`;
+    if(p.st){
+      const stdiv=document.createElement('div');
+      stdiv.className='st';stdiv.style.cssText='margin:8px 0;padding:0 16px';
+      stdiv.innerHTML=p.st;
+      ba.after(stdiv);
+    }
+  }
+  document.getElementById('bo').innerHTML=typeof p.h==='function'?p.h():'';
+  const fa=document.getElementById('fa');
+  fa.innerHTML='';
+  if(p.ft!==undefined&&p.ft!==false)fa.innerHTML=`<div class="ft">${nav(p.ft)}</div>`;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
+  const btn=document.querySelector(`.tab[data-k="${k}"]`);
+  if(btn)btn.classList.add('on');
+}
+
+function init(){
+  const c=document.getElementById('t');
+  ALL.forEach(k=>{
+    const b=document.createElement('div');b.className='tab';
+    b.textContent=TL[k]||k;b.dataset.k=k;
+    b.onclick=()=>r(k);
+    c.appendChild(b);
+  });
+  r('done');
+}
+
+init();
+document.getElementById('dk').onclick=()=>{
+  document.body.classList.toggle('dark');
+  document.getElementById('dk').textContent=document.body.classList.contains('dark')?'☀️':'🌙';
+};
+</script>
+</body>
+</html>

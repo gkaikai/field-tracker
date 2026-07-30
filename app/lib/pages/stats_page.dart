@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
-import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../services/route_guard.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
@@ -11,29 +10,31 @@ class StatsPage extends StatefulWidget {
 }
 
 class _StatsPageState extends State<StatsPage> {
-  final _auth = AuthService();
+  final _api = ApiService();
   Map<String, dynamic> _stats = {};
   bool _loading = true;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    if (!RouteGuard.isAdmin()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      });
+      return;
+    }
+    _load();
+  }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
       // 1. 打卡统计：获取本月打卡记录总数
-      //    从 attendance/records 接口获取 pagination.total 作为打卡次数
-      final attR = await dio.get('/api/v1/attendance/records',
-        options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      final attR = await _api.get('/api/v1/attendance/records');
       // 2. 轨迹统计：获取今日轨迹点数
-      //    从 location/track 接口获取 points 数组长度作为轨迹点数
-      final locR = await dio.get('/api/v1/location/track/-1?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
-        options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      final locR = await _api.get('/api/v1/location/track/-1?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}');
       // 3. 拜访统计：获取总拜访次数
-      //    从 customers/visits 接口获取 total 或 visits 数组长度作为拜访次数
-      final visitR = await dio.get('/api/v1/customers/visits',
-        options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      final visitR = await _api.get('/api/v1/customers/visits');
 
       if (!mounted) return;
       setState(() {
@@ -44,13 +45,13 @@ class _StatsPageState extends State<StatsPage> {
         };
         _loading = false;
       });
-    } catch (e) { debugPrint('加载统计数据失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载统计数据失败: $e'))); } }
+    } catch (e) { debugPrint('加载统计数据失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载失败'), backgroundColor: Colors.red)); } }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('数据统计'), backgroundColor: Colors.blue, foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('数据统计')),
       body: _loading ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(onRefresh: _load, child: ListView(
               padding: const EdgeInsets.all(16),

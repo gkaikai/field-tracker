@@ -7,7 +7,6 @@ import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
-import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
 import 'package:field_tracker/services/background_location_service.dart';
@@ -241,9 +240,7 @@ class _MapPageState extends State<MapPage> {
       if (!mounted) return;
       // 提取业务错误信息展示给用户
       String msg = '打卡失败';
-      if (e is DioException && e.error is ApiException) {
-        msg = (e.error as ApiException).friendlyMessage;
-      } else if (e is ApiException) {
+      if (e is ApiException) {
         msg = e.friendlyMessage;
       }
       ScaffoldMessenger.of(context).showSnackBar(
@@ -352,8 +349,8 @@ class _MapPageState extends State<MapPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('拜访记录失败: $e'),
+        const SnackBar(
+            content: Text('拜访记录失败'),
             backgroundColor: Colors.red),
       );
     }

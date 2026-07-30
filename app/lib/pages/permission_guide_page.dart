@@ -56,8 +56,6 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text('权限设置引导 · $_brand'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

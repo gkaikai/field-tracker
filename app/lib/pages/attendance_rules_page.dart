@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
-import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import 'package:field_tracker/services/amap_location_service.dart';
+import '../services/route_guard.dart';
 
 /// 安全截取字符串前5字符，不足则原样返回
 String _safeSub5(String? val, [String fallback = '']) {
@@ -17,21 +16,28 @@ class AttendanceRulesPage extends StatefulWidget {
 }
 
 class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
-  final _auth = AuthService();
+  final _api = ApiService();
   List _rules = [];
   bool _loading = true;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    if (!RouteGuard.isAdmin()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      });
+      return;
+    }
+    _load();
+  }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      final r = await dio.get('/api/v1/attendance/rules',
-        options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+      final r = await _api.get('/api/v1/attendance/rules');
       setState(() { _rules = r.data['rules'] ?? []; _loading = false; });
-    } catch (e) { debugPrint('加载打卡规则失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('加载失败: $e'))); } }
+    } catch (e) { debugPrint('加载打卡规则失败: $e'); if (mounted) { setState(() => _loading = false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('加载失败'), backgroundColor: Colors.red)); } }
   }
 
   /// 根据 rule 预填数据创建/编辑对话框
@@ -84,31 +90,26 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
           final lat = double.tryParse(latCtrl.text);
           final lng = double.tryParse(lngCtrl.text);
 
-          final body = {
-            'name': nameCtrl.text,
-            'center_lat': lat,
-            'center_lng': lng,
-            'radius_meters': int.tryParse(radiusCtrl.text) ?? 300,
-            'checkin_start': startCtrl.text,
-            'checkin_end': endCtrl.text,
-            'rule_type': 'location',
-          };
-
+          // 构建请求体
           try {
-            final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
+            final body = {
+              'name': nameCtrl.text,
+              'center_lat': lat,
+              'center_lng': lng,
+              'radius_meters': int.tryParse(radiusCtrl.text) ?? 300,
+              'checkin_start': startCtrl.text,
+              'checkin_end': endCtrl.text,
+              'rule_type': 'location',
+            };
             if (isEdit) {
-              await dio.put('/api/v1/attendance/rules/${existing['id']}',
-                data: body,
-                options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+              await _api.put('/api/v1/attendance/rules/${existing['id']}', data: body);
             } else {
-              await dio.post('/api/v1/attendance/rules',
-                data: body,
-                options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+              await _api.post('/api/v1/attendance/rules', data: body);
             }
             if (!ctx.mounted) return;
             Navigator.pop(ctx); _load();
           } catch (e) {
-            messenger.showSnackBar(SnackBar(content: Text('${isEdit ? "编辑" : "创建"}失败: $e')));
+            messenger.showSnackBar(SnackBar(content: Text('${isEdit ? "编辑" : "创建"}失败'), backgroundColor: Colors.red));
           }
         }, child: Text(isEdit ? '保存' : '创建')),
       ],
@@ -118,8 +119,10 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('打卡规则'), backgroundColor: Colors.blue, foregroundColor: Colors.white,
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _showRuleDialog())]),
+      appBar: AppBar(
+        title: const Text('打卡规则'),
+        actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _showRuleDialog())],
+      ),
       body: _loading ? const Center(child: CircularProgressIndicator())
           : _rules.isEmpty ? const Center(child: Text('暂无打卡规则'))
           : RefreshIndicator(onRefresh: _load, child: ListView.builder(
@@ -137,9 +140,7 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                     IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red),
                       onPressed: () async {
                         try {
-                          final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-                          await dio.delete('/api/v1/attendance/rules/${r['id']}',
-                            options: Options(headers: {'Authorization': 'Bearer ${_auth.token}'}));
+                          await _api.delete('/api/v1/attendance/rules/${r['id']}');
                           if (!context.mounted) return;
                           _load();
                         } catch (_) { debugPrint('删除打卡规则失败'); if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('删除失败'), backgroundColor: Colors.red)); }

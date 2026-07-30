@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import '../config/app_config.dart';
+import '../services/api_service.dart';
 
 /// WiFi打卡 - 快速工具类
 class WifiCheckinService {
@@ -13,13 +12,13 @@ class WifiCheckinService {
   
   /// 根据WiFi名称向服务器打卡
   static Future<bool> checkinByWifi(String token, String ssid, String bssid) async {
+    final api = ApiService();
     try {
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.baseUrl));
-      await dio.post('/api/v1/attendance/checkin', data: {
+      await api.post('/api/v1/attendance/checkin', data: {
         'type': 'checkin',
         'lng': 0, 'lat': 0,
         'wifi_bssid': bssid,
-      }, options: Options(headers: {'Authorization': 'Bearer $token'}));
+      });
       return true;
     } catch (_) { return false; }
   }
@@ -33,7 +32,7 @@ class WifiCheckinPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('WiFi打卡'), backgroundColor: Colors.blue, foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('WiFi打卡')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),

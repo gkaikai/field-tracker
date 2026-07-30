@@ -207,7 +207,7 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('上传失败: $e'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('上传失败'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -226,8 +226,6 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('拍照水印'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         actions: [
           if (_lastPhotoPath != null && _lastPhotoUploadUrl == null)
             TextButton.icon(

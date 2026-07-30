@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
@@ -11,13 +11,13 @@ router.use(authMiddleware);
  * 地理编码：地址→坐标
  * 使用高德Web Service API（国内稳定）
  */
-router.get('/search', async (req: Request, res: Response) => {
-  const { address } = req.query;
-  if (!address || typeof address !== 'string' || address.trim().length === 0) {
-    return res.status(400).json({ success: false, message: '请提供地址参数' });
-  }
-
+router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { address } = req.query;
+    if (!address || typeof address !== 'string' || address.trim().length === 0) {
+      return res.status(400).json({ success: false, message: '请提供地址参数' });
+    }
+
     const key = process.env.AMAP_WS_KEY || '';
     if (!key) {
       return res.status(500).json({ success: false, message: '高德Key未配置' });
@@ -37,9 +37,9 @@ router.get('/search', async (req: Request, res: Response) => {
       lng: parseFloat(item.location.split(',')[0] ?? 0),
     }));
     return res.json({ success: true, results });
-  } catch (e: any) {
-    console.error('[Geocode] 搜索失败:', e.message);
-    return res.status(500).json({ success: false, message: '搜索服务异常' });
+  } catch (err) {
+    console.error('[Geocode] 搜索失败:', (err as Error).message);
+    next(err);
   }
 });
 

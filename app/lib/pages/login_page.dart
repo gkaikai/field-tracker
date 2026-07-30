@@ -114,7 +114,7 @@ class _LoginPageState extends State<LoginPage> {
                 } catch (e) {
                   setS(() {
                     saving = false;
-                    statusText = '❌ 保存失败: $e';
+                    statusText = '❌ 保存失败';
                   });
                 }
               },

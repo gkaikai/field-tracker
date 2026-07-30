@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, query } from 'express-validator';
-import { authMiddleware, JwtPayload } from '../middleware/auth';
+import { authMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { pgPool } from '../config/database';
+import { ErrorCodes } from '../errors/errorCodes';
 
 const router = Router();
 router.use(authMiddleware);
@@ -17,12 +18,12 @@ router.use(authMiddleware);
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user as JwtPayload;
-  const page = parseInt(req.query.page as string) || 1;
-  const pageSize = parseInt(req.query.pageSize as string) || 50;
-  const keyword = (req.query.keyword as string || '').toLowerCase();
-  const offset = (page - 1) * pageSize;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 50));
+    const keyword = (req.query.keyword as string || '').toLowerCase();
+    const offset = (page - 1) * pageSize;
 
-  let whereClause = 'WHERE (c.is_active = true OR c.is_active IS NULL)';
+    let whereClause = 'WHERE (c.is_active = true OR c.is_active IS NULL)';
   const params: any[] = [];
 
   if (user.role !== 'admin' && user.role !== 'super_admin') {
@@ -138,7 +139,7 @@ router.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   const existing = await pgPool.query('SELECT * FROM customers WHERE id=$1', [req.params.id]);
   if (existing.rows.length === 0) return res.status(404).json({ code: '10014', message: '客户不存在' });
   if (user.role !== 'admin' && existing.rows[0].created_by !== user.userId) {
-    return res.status(403).json({ code: 'AUTH_FORBIDDEN', message: '无权修改他人客户' });
+    return res.status(403).json({ code: ErrorCodes.AUTH_FORBIDDEN.code, message: ErrorCodes.AUTH_FORBIDDEN.message });
   }
   const cur = existing.rows[0];
   const result = await pgPool.query(
@@ -182,7 +183,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
   const existing = await pgPool.query('SELECT created_by FROM customers WHERE id=$1', [req.params.id]);
   if (existing.rows.length === 0) return res.status(404).json({ code: '10014', message: '客户不存在' });
   if (user.role !== 'admin' && existing.rows[0].created_by !== user.userId) {
-    return res.status(403).json({ code: 'AUTH_FORBIDDEN', message: '无权删除他人客户' });
+    return res.status(403).json({ code: ErrorCodes.AUTH_FORBIDDEN.code, message: ErrorCodes.AUTH_FORBIDDEN.message });
   }
   const result = await pgPool.query('UPDATE customers SET is_active=false WHERE id=$1 RETURNING id', [req.params.id]);
   if (result.rows.length === 0) return res.status(404).json({ code: '10014', message: '客户不存在' });
@@ -196,6 +197,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
 
 // POST /api/v1/customers/visit — 记录拜访
 router.post('/visit',
+  adminMiddleware,
   validate([
     body('customerId').notEmpty().withMessage('客户ID不能为空'),
     body('content').notEmpty().withMessage('拜访内容不能为空'),
@@ -209,7 +211,7 @@ router.post('/visit',
       `INSERT INTO visit_records (user_id, customer_id, visit_type, status, content, signin_lng, signin_lat, signin_address, has_photo)
        VALUES ($1, $2, 'field', 'completed', $3, $4, $5, $6, $7)
        RETURNING id, created_at`,
-      [user.userId, customerId, content, lng||0, lat||0, address||'', photos?photos.length>0:false]
+      [user.userId, customerId, content, lng || null, lat || null, address||'', photos?photos.length>0:false]
     );
 
     const r = result.rows[0];

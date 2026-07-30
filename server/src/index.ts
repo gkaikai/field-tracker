@@ -93,6 +93,8 @@ import customerRoutes from './routes/customer';
 import approvalRoutes from './routes/approval';
 import orgRoutes from './routes/org';
 import geocodeRoutes from './routes/geocode';
+import visitRoutes from './routes/visit';
+import messageRoutes from './routes/message';
 import tunnelRoutes from './routes/tunnel';
 import heartbeatRoutes from './routes/heartbeat';
 
@@ -107,6 +109,8 @@ app.use('/api/v1/customers', customerRoutes);
 app.use('/api/v1/approvals', approvalRoutes);
 app.use('/api/v1/org', orgRoutes);
 app.use('/api/v1/geocode', geocodeRoutes);
+app.use('/api/v1/visits', visitRoutes);
+app.use('/api/v1/messages', messageRoutes);
 app.use('/api/v1/tunnel', tunnelRoutes);
 app.use('/api/v1/heartbeat', heartbeatRoutes);
 

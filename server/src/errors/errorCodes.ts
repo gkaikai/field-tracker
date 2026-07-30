@@ -59,6 +59,52 @@ export const ErrorCodes = {
   // ===== Attendance 模块 =====
   /** 不在打卡范围内 */
   ATTEND_OUT_OF_RANGE: { code: '40001', message: '不在打卡范围内' },
+  ATTEND_DUPLICATE: { code: '40005', message: '今日已打卡，请勿重复签到' },
+  ATTEND_TIME_INVALID: { code: '40004', message: '不在打卡时间范围内' },
+
+  // ===== Fence 模块 =====
+  /** 围栏不存在 */
+  FENCE_NOT_FOUND: { code: '30001', message: '围栏不存在' },
+  /** 操作过于频繁 */
+  FENCE_RATE_LIMITED: { code: '30002', message: '操作过于频繁，请稍后重试' },
+
+  // ===== Org 模块 =====
+  /** 用户已存在（手机号重复） */
+  USER_EXISTS: { code: '30010', message: '该手机号已存在' },
+  /** 数据库查询失败 */
+  DB_ERROR: { code: '30011', message: '数据库查询失败' },
+  /** 部门不存在 */
+  DEPT_NOT_FOUND: { code: '30012', message: '部门不存在' },
+
+  // ===== Upload 模块 =====
+  /** 请求参数无效 */
+  BAD_REQUEST: { code: '40010', message: '请求参数无效' },
+  /** 文件类型不支持 */
+  INVALID_FILE: { code: '40011', message: '不支持的文件类型' },
+
+  // ===== Visit 模块 =====
+  /** 拜访记录不存在 */
+  VISIT_NOT_FOUND: { code: '30020', message: '拜访记录不存在' },
+  /** 拜访已签到或已完成 */
+  VISIT_ALREADY_CHECKIN: { code: '30021', message: '已签到或已完成' },
+  /** 拜访已完成或已取消 */
+  VISIT_COMPLETED: { code: '30022', message: '拜访已完成或已取消' },
+  /** 未在拜访中 */
+  VISIT_NOT_IN_PROGRESS: { code: '30023', message: '未在拜访中' },
+
+  // ===== Message 模块 =====
+  /** 消息不存在 */
+  MESSAGE_NOT_FOUND: { code: '30030', message: '消息不存在' },
+
+  // ===== Attendance Rules 模块 =====
+  /** 考勤规则不存在 */
+  ATTEND_RULE_NOT_FOUND: { code: '40006', message: '规则不存在' },
+
+  // ===== Auth rate limit 模块 =====
+  /** 操作过于频繁 */
+  AUTH_RATE_LIMITED: { code: '10030', message: '操作过于频繁，请稍后重试' },
+  /** 注册操作过于频繁 */
+  REGISTER_RATE_LIMITED: { code: '10031', message: '注册操作过于频繁，请稍后再试' },
 
   // ===== Common 模块 =====
   /** 服务器内部错误 */
@@ -82,6 +128,8 @@ export function getHttpStatus(errorCode: ErrorCode): number {
     case 'PHONE':
     case 'LOC':
     case 'ATTEND':
+    case 'FENCE':
+    case 'VISIT':
       return 400;
     default:
       return 500;

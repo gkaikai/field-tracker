@@ -5,7 +5,6 @@ import 'dart:math' show cos, sin, pi;
 import 'package:flutter/material.dart';
 import 'package:amap_flutter_map/amap_flutter_map.dart';
 import 'package:amap_flutter_base/amap_flutter_base.dart';
-import 'package:dio/dio.dart';
 import '../config/amap_key.dart';
 import '../services/api_service.dart';
 
@@ -167,7 +166,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
       }
     } catch (e) {
       if (mounted) {
-        _showToast('更新失败: $e', Colors.red);
+        _showToast('更新失败', Colors.red);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -198,8 +197,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
 
   Future<void> _fetchSuggestions(String keyword) async {
     try {
-      final dio = Dio();
-      final resp = await dio.get(
+      final resp = await ApiService.amapDio.get(
         'https://restapi.amap.com/v3/place/text',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
@@ -400,8 +398,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
       _showSuggestions = false;
     });
     try {
-      final dio = Dio();
-      final resp = await dio.get(
+      final resp = await ApiService.amapDio.get(
         'https://restapi.amap.com/v3/place/text',
         queryParameters: {
           'key': AMapConfig.webServiceKey,
@@ -437,7 +434,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
       if (target == null) {
         // 回退地理编码
         try {
-          final geoResp = await dio.get(
+          final geoResp = await ApiService.amapDio.get(
             'https://restapi.amap.com/v3/geocode/geo',
             queryParameters: {
               'key': AMapConfig.webServiceKey,
@@ -479,7 +476,7 @@ class _FenceEditPageState extends State<FenceEditPage> {
       });
       _mapController?.moveCamera(CameraUpdate.newLatLngZoom(newPos, 16));
     } catch (e) {
-      if (mounted) _showToast('搜索失败: $e', Colors.red);
+      if (mounted) _showToast('搜索失败', Colors.red);
     } finally {
       if (mounted) setState(() => _searchLoading = false);
     }

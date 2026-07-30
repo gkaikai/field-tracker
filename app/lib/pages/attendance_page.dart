@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/attendance_service.dart';
+import '../utils/time_utils.dart';
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});
@@ -51,26 +52,11 @@ class _AttendancePageState extends State<AttendancePage> {
     }
   }
 
-  String _formatTime(String? timestamp) {
-    if (timestamp == null) return '--';
-    try {
-      final dt = DateTime.parse(timestamp);
-      // 使用设备当前时区偏移，替代硬编码UTC+8
-      final offset = DateTime.now().timeZoneOffset;
-      final local = dt.add(offset);
-      return '${local.month}/${local.day} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return timestamp;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('打卡记录'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -154,7 +140,7 @@ class _AttendancePageState extends State<AttendancePage> {
               overflow: TextOverflow.ellipsis,
             ),
             trailing: Text(
-              _formatTime(record['check_time'] as String?),
+              formatDateTimeFull(record['check_time'] as String?),
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           );

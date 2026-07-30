@@ -1,8 +1,8 @@
 // 客户管理页面
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import '../services/api_service.dart';
+import '../services/route_guard.dart';
 import '../config/app_config.dart';
 import '../config/amap_key.dart';
 
@@ -19,7 +19,16 @@ class _CustomerPageState extends State<CustomerPage> {
   final _searchCtrl = TextEditingController();
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    if (!RouteGuard.isAdmin()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      });
+      return;
+    }
+    _load();
+  }
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
@@ -91,8 +100,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 }
                 debounce = Timer(const Duration(milliseconds: 400), () async {
                   try {
-                    final dio = Dio();
-                    final resp = await dio.get(
+                    final resp = await ApiService.amapDio.get(
                       'https://restapi.amap.com/v3/assistant/inputtips',
                       queryParameters: {'key': AMapConfig.webServiceKey, 'keywords': v.trim(), 'output': 'JSON'},
                     );
@@ -212,7 +220,7 @@ class _CustomerPageState extends State<CustomerPage> {
                 await _load();
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
-              } catch (e) { if (!ctx.mounted) return; ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${edit?"编辑":"添加"}失败: $e'))); }
+              } catch (e) { if (!ctx.mounted) return; ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('${edit?"编辑":"添加"}失败'), backgroundColor: Colors.red)); }
             }, child: Text(edit ? '保存' : '添加')),
           ],
         );
@@ -229,13 +237,13 @@ class _CustomerPageState extends State<CustomerPage> {
     ));
     if (ok != true) return;
     try { await _api.delete('/api/v1/customers/${c['id']}'); _load(); if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('已删除'),backgroundColor:Colors.green)); }
-    catch (e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('删除失败: $e'),backgroundColor:Colors.red)); }
+    catch (e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('删除失败'),backgroundColor:Colors.red)); }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('客户管理'), backgroundColor: Colors.blue, foregroundColor: Colors.white,
+      appBar: AppBar(title: const Text('客户管理'),
         actions: [IconButton(icon: const Icon(Icons.add), onPressed: () => _form())]),
       body: Column(children: [
         Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 0), child: TextField(
@@ -380,7 +388,7 @@ class _CustomerDetailState extends State<_CustomerDetail> {
       });
       _loadVisits();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('拜访记录成功'), backgroundColor: Colors.green));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失败: $e'), backgroundColor: Colors.red)); }
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('失败'), backgroundColor: Colors.red)); }
   }
 
   @override
@@ -388,7 +396,7 @@ class _CustomerDetailState extends State<_CustomerDetail> {
     final c = widget.customer;
     final tags = (c['tags'] as List?)?.cast<String>() ?? [];
     return Scaffold(
-      appBar: AppBar(title: Text(c['name'] ?? ''), backgroundColor: Colors.blue, foregroundColor: Colors.white),
+      appBar: AppBar(title: Text(c['name'] ?? '')),
       body: ListView(padding: const EdgeInsets.all(12), children: [
         Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _row(Icons.phone, c['phone'] ?? '无电话'),

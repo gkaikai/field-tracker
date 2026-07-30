@@ -38,7 +38,7 @@ class _ProfilePageState extends State<ProfilePage> {
       });
       setState(() { _msg = '✅ 修改成功'; _oldPwdCtrl.clear(); _newPwdCtrl.clear(); _confirmPwdCtrl.clear(); });
     } catch (e) {
-      setState(() => _msg = '❌ 修改失败: $e');
+      setState(() => _msg = '❌ 修改失败');
     } finally {
       setState(() => _loading = false);
     }
@@ -53,7 +53,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('个人设置'), backgroundColor: Colors.blue, foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('个人设置')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

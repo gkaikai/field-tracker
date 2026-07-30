@@ -99,7 +99,7 @@ class _ReportPageState extends State<ReportPage> {
       _loadReports();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('提交成功'), backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('提交失败: $e'), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('提交失败'), backgroundColor: Colors.red));
     }
   }
 
@@ -108,8 +108,6 @@ class _ReportPageState extends State<ReportPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('工作汇报'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.add), onPressed: _createReport)],
       ),
       body: Column(

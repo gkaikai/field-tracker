@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, query } from 'express-validator';
 import { pgPool } from '../config/database';
-import { authMiddleware, roleMiddleware, JwtPayload } from '../middleware/auth';
+import { authMiddleware, roleMiddleware, adminMiddleware, JwtPayload } from '../middleware/auth';
 import { AppError } from '../errors/AppError';
+import { ErrorCodes } from '../errors/errorCodes';
 import { validate } from '../middleware/validate';
 import { attendanceCache, MemAttendanceRecord, getMemAttendanceRecords } from '../shared/attendance_cache';
 
@@ -35,6 +36,20 @@ router.post('/checkin',
     try {
       const user = (req as any).user as JwtPayload;
       const { type, lng, lat, address, photo_url, wifi_bssid } = req.body;
+      // 去重校验：今日是否已打过同类型卡
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const dupCheck = await pgPool.query(
+          `SELECT id FROM attendance_records WHERE user_id=$1 AND type=$2 AND check_time::date=$3::date LIMIT 1`,
+          [user.userId, type, today],
+        );
+        if (dupCheck.rows.length > 0) {
+          throw new AppError('ATTEND_DUPLICATE');
+        }
+      } catch (dupErr) {
+        if (dupErr instanceof AppError) throw dupErr;
+        // 数据库错误忽略，继续尝试打卡
+      }
 
       // 1. 校验是否有生效的打卡规则
       let rules;
@@ -194,8 +209,8 @@ router.get('/records',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user as JwtPayload;
-      const page = parseInt(req.query.page as string) || 1;
-      const pageSize = parseInt(req.query.pageSize as string) || 20;
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSize = Math.max(1, Math.min(100, parseInt(req.query.pageSize as string) || 20));
 
       // 先尝试数据库查询
       try {
@@ -288,8 +303,9 @@ router.get('/rules',
   },
 );
 
-// POST /api/v1/attendance/rules — 创建规则（含内存回退）
+// POST /api/v1/attendance/rules — 创建规则（仅管理员/经理）
 router.post('/rules',
+  roleMiddleware('admin', 'manager'),
   validate([
     body('name').notEmpty().withMessage('规则名称不能为空'),
     body('rule_type').optional().isIn(['location', 'wifi', 'both']),
@@ -317,14 +333,14 @@ router.post('/rules',
   },
 );
 
-// PUT /api/v1/attendance/rules/:id — 编辑规则
+// PUT /api/v1/attendance/rules/:id — 编辑规则（管理员/经理）
 router.put('/rules/:id',
-  roleMiddleware('admin'),
+  adminMiddleware,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // 先查现有记录，避免编辑时未传字段被设为NULL
       const existing = await pgPool.query('SELECT * FROM attendance_rules WHERE id=$1', [req.params.id]);
-      if (existing.rows.length === 0) return res.status(404).json({ code: 'NOT_FOUND', message: '规则不存在' });
+      if (existing.rows.length === 0) return res.status(404).json(ErrorCodes.ATTEND_RULE_NOT_FOUND);
       const cur = existing.rows[0];
       await pgPool.query(
         `UPDATE attendance_rules SET
@@ -349,16 +365,16 @@ router.put('/rules/:id',
     } catch (err) {
       // 内存回退
       const idx = memRules.findIndex(r => r.id === parseInt(req.params.id));
-      if (idx === -1) return res.status(404).json({ code: 'NOT_FOUND', message: '规则不存在' });
+      if (idx === -1) return res.status(404).json(ErrorCodes.ATTEND_RULE_NOT_FOUND);
       memRules[idx] = { ...memRules[idx], ...req.body, id: memRules[idx].id };
       res.json(memRules[idx]);
     }
   },
 );
 
-// DELETE /api/v1/attendance/rules/:id — 删除规则
+// DELETE /api/v1/attendance/rules/:id — 删除规则（管理员/经理）
 router.delete('/rules/:id',
-  roleMiddleware('admin'),
+  adminMiddleware,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await pgPool.query('DELETE FROM attendance_rules WHERE id = $1', [req.params.id]);
@@ -366,7 +382,7 @@ router.delete('/rules/:id',
     } catch (err) {
       // 内存回退
       const idx = memRules.findIndex(r => r.id === parseInt(req.params.id));
-      if (idx === -1) return res.status(404).json({ code: 'NOT_FOUND', message: '规则不存在' });
+      if (idx === -1) return res.status(404).json(ErrorCodes.ATTEND_RULE_NOT_FOUND);
       memRules.splice(idx, 1);
       res.json({ success: true });
     }
@@ -374,8 +390,85 @@ router.delete('/rules/:id',
 );
 
 // ============================================================
-//  管理后台统计数据
+//  员工工作台数据（今日状态+统计）
 // ============================================================
+
+// GET /api/v1/attendance/my-status — 员工今日考勤状态 + 统计
+router.get('/my-status',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user as JwtPayload;
+      const today = new Date().toISOString().split('T')[0];
+
+      // 今日打卡状态
+      let todayRecords: any[] = [];
+      try {
+        const result = await pgPool.query(
+          `SELECT id, type, check_time, address, status
+           FROM attendance_records
+           WHERE user_id = $1 AND check_time::date = $2::date
+           ORDER BY check_time`,
+          [user.userId, today],
+        );
+        todayRecords = result.rows;
+      } catch (_) {}
+
+      const checkedIn = todayRecords.some(r => r.type === 'checkin');
+      const checkedOut = todayRecords.some(r => r.type === 'checkout');
+
+      // 当月统计
+      const workDaysInMonth = 22; // 按22个工作日估算
+      const monthStart = today.substring(0, 7) + '-01';
+      let monthlyStats = { totalDays: 0, checkinDays: 0, totalMileage: 0 };
+      try {
+        const statsResult = await pgPool.query(
+          `SELECT
+             COUNT(DISTINCT check_time::date) as checkin_days,
+             COUNT(*) as total_records
+           FROM attendance_records
+           WHERE user_id = $1 AND check_time::date >= $2::date`,
+          [user.userId, monthStart],
+        );
+        if (statsResult.rows.length > 0) {
+          monthlyStats = {
+            totalDays: workDaysInMonth,
+            checkinDays: parseInt(statsResult.rows[0].checkin_days) || 0,
+            totalMileage: 0,
+          };
+        }
+      } catch (_) {}
+
+      // 待审批数量
+      let pendingApprovalCount = 0;
+      try {
+        const approvalResult = await pgPool.query(
+          `SELECT COUNT(*) as cnt FROM approvals
+           WHERE status = 'pending'
+             AND (applicant_id = $1 OR approver_id = $1)`,
+          [user.userId],
+        );
+        if (approvalResult.rows.length > 0) {
+          pendingApprovalCount = parseInt(approvalResult.rows[0].cnt);
+        }
+      } catch (_) {}
+
+      res.json({
+        today: {
+          date: today,
+          checkedIn,
+          checkedOut,
+          records: todayRecords,
+        },
+        monthly: monthlyStats,
+        pendingApprovalCount,
+        userName: user.phone || '',
+        userRole: user.role || 'employee',
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/attendance/stats — 考勤统计
 router.get('/stats',
@@ -391,23 +484,32 @@ router.get('/stats',
 
       const result = await pgPool.query(
         `SELECT
-           u.id as user_id, u.name, u.department_id,
+           u.id as user_id, u.name,
            COUNT(CASE WHEN a.type = 'checkin' THEN 1 END) as checkin_count,
-           COUNT(CASE WHEN a.type = 'checkout' THEN 1 END) as checkout_count
+           MAX(CASE WHEN a.type = 'checkin' THEN a.check_time END) as last_checkin
          FROM users u
          LEFT JOIN attendance_records a ON u.id = a.user_id
            AND a.check_time::date >= $1::date
            AND a.check_time::date <= $2::date
-         WHERE u.is_active = true
-         GROUP BY u.id, u.name, u.department_id
+         GROUP BY u.id, u.name
          ORDER BY u.name`,
         [startDate, endDate],
       );
 
+      const stats = result.rows;
+      const totalUsers = stats.length;
+      const checkedIn = stats.filter(r => parseInt(r.checkin_count as string, 10) > 0).length;
+
       res.json({
         startDate,
         endDate,
-        stats: result.rows,
+        stats,
+        totalUsers,
+        checkedIn,
+        late: 0,
+        absent: totalUsers - checkedIn,
+        todayVisits: 0,
+        pendingApprovals: 0,
       });
     } catch (err) {
       next(err);
