@@ -1,15 +1,43 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth';
+import fs from 'fs';
 
 const router = Router();
 
-// 内存中保存当前隧道URL（重启丢失，首次启动时从TUNNEL_URL环境变量读取）
-let currentTunnelUrl = process.env.TUNNEL_URL || '';
+// ── 隧道URL来源优先级：keepalive上报 > /tmp动态文件 > 环境变量 ──
+const TUNNEL_URL_FILE = '/tmp/fieldtracker-tunnel-url.txt';
+
+function readTunnelUrlFile(): string {
+  try {
+    const content = fs.readFileSync(TUNNEL_URL_FILE, 'utf-8').trim();
+    return content || '';
+  } catch {
+    return '';
+  }
+}
+
+// 内存中保存当前隧道URL（重启丢失，首次启动时从环境变量/动态文件读取）
+let currentTunnelUrl = process.env.TUNNEL_URL || readTunnelUrlFile() || '';
 let backupTunnelUrl = '';  // 备用隧道URL
+let tunnelUrlFileMtimeMs = 0;
 
 // ── GET /api/v1/tunnel — APK轮询获取最新隧道URL（含备用） ──
 // 需要认证，防止泄露内网入口
 router.get('/', authMiddleware, (_req: Request, res: Response) => {
+  // 动态刷新：keepalive 更新的 /tmp 文件比内存新则重新读取（隧道重建后URL不失效）
+  try {
+    const stat = fs.statSync(TUNNEL_URL_FILE);
+    if (stat.mtimeMs > tunnelUrlFileMtimeMs) {
+      const fromFile = readTunnelUrlFile();
+      if (fromFile && fromFile !== currentTunnelUrl) {
+        currentTunnelUrl = fromFile;
+        console.log(`[tunnel] 从文件刷新URL: ${fromFile}`);
+      }
+      tunnelUrlFileMtimeMs = stat.mtimeMs;
+    }
+  } catch {
+    // 文件不存在时保持内存值
+  }
   res.json({
     url: currentTunnelUrl,
     backup_url: backupTunnelUrl,
