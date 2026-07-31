@@ -43,8 +43,19 @@ node db/migrate.js up   # 应用 004/005/006
 
 ## 二、验证清单（迁移后）
 
+### 迁移前预检（006 回填相关）
+
+006 回填按「名称 = 围栏名 || '打卡规则'」匹配存量规则。若线上存在**重名围栏**，
+回填可能把同一 fence_id 赋给多条规则，导致 `idx_attendance_rules_fence_unique`
+创建失败、迁移整体回滚。迁移前先核对：
+
+```sql
+SELECT name, COUNT(*) FROM geo_fences GROUP BY name HAVING COUNT(*) > 1;
+-- 期望 0 行；若 >0，需先人工去重重名围栏，或调整回填策略
+```
+
 ```bash
-node db/migrate.js status   # 期望 001~006 全部 ✅ 已应用，0 待处理
+node db/migrate.js status   # 期望 001~007 全部 ✅ 已应用，0 待处理
 ```
 
 SQL 核对（psql 或 node）：
