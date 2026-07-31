@@ -31,7 +31,7 @@ class _StatsPageState extends State<StatsPage> {
     setState(() => _loading = true);
     try {
       final attR = await _api.get('/api/v1/attendance/records');
-      final locR = await _api.get('/api/v1/location/track/-1?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}');
+      final locR = await _api.get('/api/v1/location/track/me?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}');
       final visitR = await _api.get('/api/v1/customers/visits');
       if (!mounted) return;
       setState(() {
