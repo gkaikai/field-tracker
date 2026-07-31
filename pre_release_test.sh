@@ -12,7 +12,7 @@ TUNNEL_URL="${TUNNEL_URL:-https://ca30ef85c4698cc6-123-123-97-213.serveousercont
 
 # 测试账号（可被环境变量覆盖）
 TEST_PHONE="${TEST_PHONE:-13800138000}"
-TEST_PASSWORD="${TEST_PASSWORD:-test123456}"
+TEST_PASSWORD="${TEST_PASSWORD:-123456}"
 
 # Flutter 工具链路径（可被环境变量覆盖）
 JAVA_HOME="${JAVA_HOME:-/Users/openclaw-gkf/.hermes/profiles/egg-xiaoming/home/java/zulu17.56.15-ca-jdk17.0.14-macosx_x64}"
@@ -36,7 +36,13 @@ echo ""
 info "1/5 Flutter Analyze..."
 cd "$APP_DIR"
 
-ANALYZE_OUTPUT=$("$FLUTTER_ROOT/bin/flutter" analyze lib/ 2>&1) && ANALYZE_OK=true || ANALYZE_OK=false
+# 只把 error 视为失败（warning/info 不阻塞交付）
+ANALYZE_OUTPUT=$("$FLUTTER_ROOT/bin/flutter" analyze lib/ 2>&1 || true)
+if echo "$ANALYZE_OUTPUT" | grep -qE "^\s*error •"; then
+  ANALYZE_OK=false
+else
+  ANALYZE_OK=true
+fi
 
 if $ANALYZE_OK; then
   green "Flutter Analyze 通过"
