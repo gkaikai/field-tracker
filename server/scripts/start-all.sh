@@ -8,9 +8,9 @@ echo "🚀 启动服务端..."
 cd $HOME/development/field_tracker/server && NODE_ENV=development node dist/index.js &
 sleep 2
 
-echo "🚀 启动 autossh 隧道（守护脚本管理）..."
-nohup bash $HOME/development/field_tracker/scripts/tunnel-autossh.sh > $HOME/logs/tunnel-autossh-daemon.log 2>&1 &
-echo "  ↪ 守护脚本: $HOME/development/field_tracker/scripts/tunnel-autossh.sh"
+echo "🚀 启动隧道监督（tunnel-keepalive.sh，cron */5 持续监督）..."
+bash $HOME/development/field_tracker/scripts/tunnel-keepalive.sh >/dev/null 2>&1 &
+echo "  ↪ 监督脚本: $HOME/development/field_tracker/scripts/tunnel-keepalive.sh"
 echo "  ↪ PID: $!"
 
 echo ""
