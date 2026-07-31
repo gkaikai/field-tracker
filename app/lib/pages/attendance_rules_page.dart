@@ -168,6 +168,9 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
     final lateCtrl = TextEditingController(text: rule?['lateTime']?.toString() ?? '09:30');
     final endCtrl = TextEditingController(text: rule?['endTime']?.toString() ?? '18:00');
     final radiusCtrl = TextEditingController(text: (rule?['radius'] ?? 100).toString());
+    // BUG 9 修复：位置信息可见可编辑（后端字段为 snake_case：center_lat/center_lng）
+    final latCtrl = TextEditingController(text: (rule?['center_lat'] ?? rule?['centerLat'])?.toString() ?? '');
+    final lngCtrl = TextEditingController(text: (rule?['center_lng'] ?? rule?['centerLng'])?.toString() ?? '');
     _saving = false;
 
     showDialog(
@@ -240,6 +243,51 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  // BUG 9 修复：显示/编辑打卡位置（经纬度）
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: latCtrl,
+                          decoration: const InputDecoration(
+                            labelText: '纬度(打卡中心)',
+                            hintText: '如 22.5431',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: lngCtrl,
+                          decoration: const InputDecoration(
+                            labelText: '经度(打卡中心)',
+                            hintText: '如 114.0579',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (rule?['fence_id'] != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.link, size: 14, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              '该规则由电子围栏自动生成，位置修改后围栏编辑会重新同步',
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -267,6 +315,9 @@ class _AttendanceRulesPageState extends State<AttendanceRulesPage> {
                             'lateTime': lateCtrl.text.trim(),
                             'endTime': endCtrl.text.trim(),
                             'radius': int.tryParse(radiusCtrl.text.trim()) ?? 100,
+                            // BUG 9 修复：提交经纬度（后端字段为 snake_case）
+                            'center_lat': double.tryParse(latCtrl.text.trim()),
+                            'center_lng': double.tryParse(lngCtrl.text.trim()),
                           };
                           if (isEdit) {
                             await _api.put('/api/v1/attendance/rules/${rule['id']}', data: data);

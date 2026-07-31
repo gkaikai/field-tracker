@@ -158,6 +158,9 @@ CREATE INDEX IF NOT EXISTS idx_attendance_rules_dept ON attendance_rules(departm
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_type ON attendance_rules(rule_type);
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_active ON attendance_rules(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_fence ON attendance_rules(fence_id);
+-- 同一围栏最多一条关联规则（006 迁移；允许 NULL 不影响手动规则）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_rules_fence_unique
+    ON attendance_rules(fence_id) WHERE fence_id IS NOT NULL;
 
 
 -- ============================================================

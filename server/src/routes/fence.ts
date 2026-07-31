@@ -54,8 +54,8 @@ const DEFAULT_CHECKIN_END = '18:00:00';
 /**
  * 计算打卡规则的地理参数（中心点/半径）。
  * - circle：直接用 centerLat/centerLng/radiusMeters（缺省半径 100m）
- * - polygon：顶点均值作为中心点，最大顶点距离 * 1.2 作为半径
- * - 无法计算时返回 null（调用方跳过规则同步）
+ * - polygon：顶点均值作为中心点，最大顶点距离 * 1.2 作为半径（打卡范围约外扩 20%）
+ * - 无法计算时返回 null（调用方跳过规则创建/同步）
  */
 function computeRuleGeo(
   shapeType: string,
@@ -65,9 +65,11 @@ function computeRuleGeo(
   coordinates: Array<{ lat: number; lng: number }> | undefined,
 ) {
   if (shapeType === 'circle') {
+    // circle 缺中心点时无法创建有效规则，返回 null 跳过（不建无效规则）
+    if (centerLat == null || centerLng == null) return null;
     return {
-      centerLat: centerLat ?? null,
-      centerLng: centerLng ?? null,
+      centerLat,
+      centerLng,
       radiusMeters: radiusMeters ?? 100,
     };
   }
@@ -108,27 +110,44 @@ async function createRuleForFence(
   );
 }
 
-/** 同步更新围栏关联打卡规则（PUT 专用） */
+/** 同步更新围栏关联打卡规则（PUT 专用）——upsert 语义：
+ *  - 已有关联规则：更新坐标/名称/启用状态/时间（未传字段保持原值）
+ *  - 无关联规则（存量多边形围栏/此前创建失败）：自动补建规则（🟡-2 修复）
+ *  依赖 006 迁移的部分唯一索引 idx_attendance_rules_fence_unique */
 async function syncRuleForFence(
   fenceId: string,
   name: string,
+  departmentId: string | null,
   geo: { centerLat: number | null; centerLng: number | null; radiusMeters: number },
   isActive: boolean | null | undefined,
   checkinStart?: string,
   checkinEnd?: string,
 ) {
+  // 读取现有规则的时间/部门（未传时间时保持原值，无则用默认值）
+  const existing = await pgPool.query(
+    'SELECT checkin_start, checkin_end, department_id FROM attendance_rules WHERE fence_id = $1',
+    [fenceId],
+  );
+  const cur = existing.rows[0];
+  const start = checkinStart || cur?.checkin_start || DEFAULT_CHECKIN_START;
+  const end = checkinEnd || cur?.checkin_end || DEFAULT_CHECKIN_END;
+  const dept = departmentId ?? cur?.department_id ?? null;
+
   await pgPool.query(
-    `UPDATE attendance_rules SET
-       name = $1,
-       center_lat = $2,
-       center_lng = $3,
-       radius_meters = $4,
-       is_active = COALESCE($5, is_active),
-       checkin_start = COALESCE($6::time, checkin_start),
-       checkin_end = COALESCE($7::time, checkin_end),
-       updated_at = NOW()
-     WHERE fence_id = $8`,
-    [name + '打卡规则', geo.centerLat, geo.centerLng, geo.radiusMeters, isActive ?? null, checkinStart ?? null, checkinEnd ?? null, fenceId],
+    `INSERT INTO attendance_rules (fence_id, name, rule_type, department_id, center_lat, center_lng, radius_meters, checkin_start, checkin_end, is_active)
+     VALUES ($1, $2, 'location', $3, $4, $5, $6, $7::time, $8::time, COALESCE($9, true))
+     ON CONFLICT (fence_id) WHERE fence_id IS NOT NULL
+     DO UPDATE SET
+       name = EXCLUDED.name,
+       department_id = EXCLUDED.department_id,
+       center_lat = EXCLUDED.center_lat,
+       center_lng = EXCLUDED.center_lng,
+       radius_meters = EXCLUDED.radius_meters,
+       checkin_start = EXCLUDED.checkin_start,
+       checkin_end = EXCLUDED.checkin_end,
+       is_active = COALESCE($9, attendance_rules.is_active),
+       updated_at = NOW()`,
+    [fenceId, name + '打卡规则', dept, geo.centerLat, geo.centerLng, geo.radiusMeters, start, end, isActive ?? null],
   );
 }
 
@@ -223,7 +242,7 @@ router.put('/:id',
 
       // 先 SELECT 现有值，为 ?? 兜底做准备
       const existing = await pgPool.query(
-        `SELECT name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active
+        `SELECT name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active, department_id
       FROM geo_fences WHERE id = $1`, [id]
       );
       if (existing.rows.length === 0) {
@@ -256,7 +275,10 @@ router.put('/:id',
           newShapeType === 'circle' ? (centerLat ?? cur.center_lat) : null,
           newShapeType === 'circle' ? (centerLng ?? cur.center_lng) : null,
           newShapeType === 'circle' ? (radiusMeters ?? cur.radius_meters) : null,
-          Array.isArray(coordinates) && coordinates.length > 0 ? JSON.stringify(coordinates) : cur.polygon_points,
+          // pg 返回的 polygon_points 已是解析后的数组，需序列化回 JSON 字符串
+          Array.isArray(coordinates) && coordinates.length > 0
+            ? JSON.stringify(coordinates)
+            : (cur.polygon_points ? JSON.stringify(cur.polygon_points) : null),
           color ?? cur.color,
           isActive ?? cur.is_active,
           id,
@@ -274,7 +296,7 @@ router.put('/:id',
       );
       if (geo) {
         try {
-          await syncRuleForFence(id, name ?? cur.name, geo, isActive, checkinStart, checkinEnd);
+          await syncRuleForFence(id, name ?? cur.name, cur.department_id ?? null, geo, isActive, checkinStart, checkinEnd);
         } catch (_ruleErr) {
           // 非致命：规则同步失败不影响围栏更新
         }
@@ -294,7 +316,8 @@ router.delete('/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      // 🔗 先清理关联打卡规则（显式删除，兼容未关联fence_id的存量规则）
+      // 🔗 清理关联打卡规则（按 fence_id 精确删除；外键 ON DELETE CASCADE 双保险，
+      // 006 迁移已回填存量规则的 fence_id；手动创建的无关联规则不受影响）
       try {
         await pgPool.query('DELETE FROM attendance_rules WHERE fence_id = $1', [id]);
       } catch (_ruleErr) {

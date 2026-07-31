@@ -950,7 +950,7 @@ class _FencePageState extends State<FencePage>
                 style: const TextStyle(fontSize: 14, color: Colors.black87),
                 decoration: InputDecoration(
                   hintText: '搜索地址，如：郑州科技园',
-                  hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                  hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
                   filled: true,
                   fillColor: Colors.grey[50],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
@@ -998,7 +998,14 @@ class _FencePageState extends State<FencePage>
               ),
               child: _searchLoading
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.search, size: 20),
+                  : const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.search, size: 18),
+                        SizedBox(width: 4),
+                        Text('搜索', style: TextStyle(fontSize: 13)),
+                      ],
+                    ),
             ),
           ),
         ],
