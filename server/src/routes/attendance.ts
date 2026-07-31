@@ -299,7 +299,8 @@ router.get('/rules',
         ...r,
         startTime: r.checkin_start,
         endTime: r.checkin_end,
-        lateTime: r.late_time || r.checkin_end || null,
+        // late_time 无值返回 null（不拿下班时间顶替；前端编辑弹窗有 09:30 默认兜底）
+        lateTime: r.late_time || null,
         radius: r.radius_meters,
       })) });
     } catch (err) {
@@ -324,6 +325,13 @@ router.post('/rules',
     body('center_lat').optional().isFloat({ min: -85.05, max: 85.05 }),
     body('center_lng').optional().isFloat({ min: -180, max: 180 }),
     body('radius_meters').optional().isFloat({ min: 10, max: 10000 }),
+    // 时间字段格式校验（🟠-1 修复：防止非法格式穿透到 PG 报错→误报404）
+    body('startTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('上班时间格式应为 HH:mm'),
+    body('lateTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('迟到时间格式应为 HH:mm'),
+    body('endTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('下班时间格式应为 HH:mm'),
+    body('checkin_start').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('上班时间格式应为 HH:mm'),
+    body('checkin_end').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('下班时间格式应为 HH:mm'),
+    body('late_time').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('迟到时间格式应为 HH:mm'),
   ]),
   async (req: Request, res: Response, next: NextFunction) => {
     const { name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid } = req.body;
@@ -348,6 +356,14 @@ router.post('/rules',
 // PUT /api/v1/attendance/rules/:id — 编辑规则（管理员/经理）
 router.put('/rules/:id',
   adminMiddleware,
+  validate([
+    body('startTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('上班时间格式应为 HH:mm'),
+    body('lateTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('迟到时间格式应为 HH:mm'),
+    body('endTime').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('下班时间格式应为 HH:mm'),
+    body('checkin_start').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('上班时间格式应为 HH:mm'),
+    body('checkin_end').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('下班时间格式应为 HH:mm'),
+    body('late_time').optional().custom((v: any) => v === '' || /^\d{1,2}:\d{2}(:\d{2})?$/.test(v)).withMessage('迟到时间格式应为 HH:mm'),
+  ]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // 先查现有记录，避免编辑时未传字段被设为NULL
@@ -364,8 +380,9 @@ router.put('/rules/:id',
           'center_lat' in req.body ? req.body.center_lat : cur.center_lat,
           'center_lng' in req.body ? req.body.center_lng : cur.center_lng,
           'radius_meters' in req.body ? req.body.radius_meters : ('radius' in req.body ? req.body.radius : cur.radius_meters),
-          'checkin_start' in req.body ? req.body.checkin_start : ('startTime' in req.body ? req.body.startTime : cur.checkin_start),
-          'checkin_end' in req.body ? req.body.checkin_end : ('endTime' in req.body ? req.body.endTime : cur.checkin_end),
+          // 空串归一化为 NULL（🟠-1 修复：避免 PG time 类型解析报错→误报404）
+          'checkin_start' in req.body ? (req.body.checkin_start === '' ? null : req.body.checkin_start) : ('startTime' in req.body ? (req.body.startTime === '' ? null : req.body.startTime) : cur.checkin_start),
+          'checkin_end' in req.body ? (req.body.checkin_end === '' ? null : req.body.checkin_end) : ('endTime' in req.body ? (req.body.endTime === '' ? null : req.body.endTime) : cur.checkin_end),
           'late_time' in req.body ? (req.body.late_time === '' ? null : req.body.late_time) : ('lateTime' in req.body ? (req.body.lateTime === '' ? null : req.body.lateTime) : cur.late_time),
           'wifi_ssid' in req.body ? req.body.wifi_ssid : ('wifiName' in req.body ? req.body.wifiName : cur.wifi_ssid),
           'wifi_bssid' in req.body ? req.body.wifi_bssid : cur.wifi_bssid,
