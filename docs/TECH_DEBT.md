@@ -12,6 +12,7 @@
 | TD-003 | P2 | 多边形围栏规则中心点为顶点均值、半径为最大顶点距离×1.2，非严格外接圆 | 多边形打卡边界略宽松于围栏多边形 | 保持现状；精确到面检测需额外几何计算，收益低 |
 | TD-004 | P2 | `attendance.ts` GET 规则列表 DB 与内存两条路径各自映射 camelCase，逻辑重复 | 维护成本略高，行为一致 | 抽取公共映射函数（下一轮重构时合并） |
 | TD-005 | P1 | `profile_page.dart` 版本号展示依赖 `PackageInfo.fromPlatform()`，release 构建时才准确，debug 构建可能显示 0.0.0 | 仅影响 debug 包显示 | 已动态化，无阻塞 |
+| TD-006 | P1 | `api_service.dart` 的 `amapDio` 独立于主 `_dio`：不走统一 token 拦截器、不映射业务错误码，POI/地理编码调用（poi_search_field/fence_page/fence_edit_page）错误处理各自为政 | 高德 key 失效/限流时报错样式不统一，故障排查成本高 | 中期重构：amapDio 复用统一拦截器（仅替换 baseUrl+key），错误统一走 `_httpErrorMessage` |
 
 ## 已解决（历史）
 
