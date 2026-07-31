@@ -303,8 +303,14 @@ router.get('/rules',
         radius: r.radius_meters,
       })) });
     } catch (err) {
-      // 数据库不可用时返回内存规则
-      res.json({ rules: memRules });
+      // 数据库不可用时返回内存规则（同样映射 camelCase，保持与 DB 路径一致）
+      res.json({ rules: memRules.map(r => ({
+        ...r,
+        startTime: r.checkin_start,
+        endTime: r.checkin_end,
+        lateTime: r.late_time || null,
+        radius: r.radius_meters,
+      })) });
     }
   },
 );
@@ -360,7 +366,7 @@ router.put('/rules/:id',
           'radius_meters' in req.body ? req.body.radius_meters : ('radius' in req.body ? req.body.radius : cur.radius_meters),
           'checkin_start' in req.body ? req.body.checkin_start : ('startTime' in req.body ? req.body.startTime : cur.checkin_start),
           'checkin_end' in req.body ? req.body.checkin_end : ('endTime' in req.body ? req.body.endTime : cur.checkin_end),
-          'late_time' in req.body ? req.body.late_time : ('lateTime' in req.body ? req.body.lateTime : cur.late_time),
+          'late_time' in req.body ? (req.body.late_time === '' ? null : req.body.late_time) : ('lateTime' in req.body ? (req.body.lateTime === '' ? null : req.body.lateTime) : cur.late_time),
           'wifi_ssid' in req.body ? req.body.wifi_ssid : ('wifiName' in req.body ? req.body.wifiName : cur.wifi_ssid),
           'wifi_bssid' in req.body ? req.body.wifi_bssid : cur.wifi_bssid,
           req.params.id,
