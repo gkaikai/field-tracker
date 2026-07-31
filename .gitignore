@@ -46,3 +46,8 @@ pgdata/
 __pycache__/
 *.pyc
 
+
+# 隧道URL文件（运行时生成/过期快照）
+tunnel_url.txt
+current_tunnel_url.txt
+tunnel_url.txt.current

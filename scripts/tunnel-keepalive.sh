@@ -120,11 +120,13 @@ if [ -f "$TUNNEL_PID_FILE" ]; then
                     if [ -z "$BACKUP_URL" ] || ! curl -sf --max-time 5 "${BACKUP_URL}/api/v1/tunnel/health" > /dev/null 2>&1; then
                         echo "$TIMESTAMP PREEMPTIVE — 生成备用隧道..." >> "$MONITOR_LOG"
                         # 建立第二个隧道（不同端口的转发，用另一个ssh连接）
-                        nohup ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+# 建立备用隧道（disown 替代 nohup：本环境 nohup 无法 detach，ssh 会被 SIGHUP 杀掉）
+                        ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
                             -o ExitOnForwardFailure=yes \
                             -o StrictHostKeyChecking=no \
-                            -R 80:localhost:$PORT serveo.net >/tmp/fieldtracker-backup-raw.log 2>&1 &
+                            -R 80:localhost:$PORT serveo.net </dev/null >/tmp/fieldtracker-backup-raw.log 2>&1 &
                         BACKUP_PID=$!
+                        disown "$BACKUP_PID" 2>/dev/null || true
                         sleep 6
                         NEW_BACKUP_URL=$(grep -o 'https://[a-z0-9-]*\.serveousercontent\.com' /tmp/fieldtracker-backup-raw.log 2>/dev/null | head -1)
                         # 重试最多3次，等待serveo生成URL
@@ -166,20 +168,25 @@ fi
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 echo "$TIMESTAMP REBUILD — 创建新隧道..." >> "$MONITOR_LOG"
 
-nohup ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+# 启动新隧道（disown 替代 nohup：本环境 nohup 无法 detach，ssh 会被 SIGHUP 杀掉）
+ssh -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
     -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=no \
-    -R 80:localhost:$PORT serveo.net >"$TUNNEL_RAW_LOG" 2>&1 &
+    -R 80:localhost:$PORT serveo.net </dev/null >"$TUNNEL_RAW_LOG" 2>&1 &
 TUNNEL_PID=$!
+disown "$TUNNEL_PID" 2>/dev/null || true
 echo $TUNNEL_PID > "$TUNNEL_PID_FILE"
 
-# ── 3. 等待隧道建立，提取URL ──
-sleep 8
+# ── 3. 等待隧道建立，提取URL（serveo 响应慢时重试，最多 3 次）──
 NEW_URL=""
-if [ -f "$TUNNEL_RAW_LOG" ]; then
-    # 从日志中提取serveo隧道URL
-    NEW_URL=$(grep -o 'https://[a-z0-9-]*\.serveousercontent\.com' "$TUNNEL_RAW_LOG" | head -1)
-fi
+for i in 1 2 3; do
+    sleep 6
+    if [ -f "$TUNNEL_RAW_LOG" ]; then
+        # 从日志中提取serveo隧道URL
+        NEW_URL=$(grep -o 'https://[a-z0-9-]*\.serveousercontent\.com' "$TUNNEL_RAW_LOG" | head -1)
+    fi
+    [ -n "$NEW_URL" ] && break
+done
 
 if [ -n "$NEW_URL" ]; then
     report_url "$NEW_URL"

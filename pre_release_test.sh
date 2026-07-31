@@ -8,7 +8,11 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$SCRIPT_DIR/app"
 SERVER_DIR="$SCRIPT_DIR/server"
-TUNNEL_URL="${TUNNEL_URL:-https://ca30ef85c4698cc6-123-123-97-213.serveousercontent.com}"
+TUNNEL_URL="${TUNNEL_URL:-$(cat /tmp/fieldtracker-tunnel-url.txt 2>/dev/null)}"
+# 动态 fallback：从 GitHub config 仓库读取当前主隧道 URL（serveo 每次重连 URL 会变，硬编码会失效）
+if [ -z "$TUNNEL_URL" ]; then
+  TUNNEL_URL=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/development/field-tracker-config/config.json')))['servers'][0]['url'])" 2>/dev/null || true)
+fi
 
 # 测试账号（可被环境变量覆盖）
 TEST_PHONE="${TEST_PHONE:-13800138000}"
