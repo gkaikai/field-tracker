@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS attendance_rules (
     need_photo      BOOLEAN         NOT NULL DEFAULT false,
     grace_minutes   INT             NOT NULL DEFAULT 5,
     is_active       BOOLEAN         NOT NULL DEFAULT true,
+    fence_id        UUID            REFERENCES geo_fences(id) ON DELETE CASCADE,
     created_by      UUID            REFERENCES users(id),
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -138,6 +139,7 @@ COMMENT ON COLUMN attendance_rules.rule_type     IS '规则类型：location(位
 COMMENT ON COLUMN attendance_rules.center_lat    IS '打卡中心纬度';
 COMMENT ON COLUMN attendance_rules.center_lng    IS '打卡中心经度';
 COMMENT ON COLUMN attendance_rules.radius_meters IS '打卡半径（米）';
+COMMENT ON COLUMN attendance_rules.fence_id      IS '关联的电子围栏 ID（围栏自动创建的规则通过此列双向同步）';
 COMMENT ON COLUMN attendance_rules.wifi_ssid     IS 'Wi-Fi SSID';
 COMMENT ON COLUMN attendance_rules.wifi_bssid    IS 'Wi-Fi BSSID（MAC）';
 COMMENT ON COLUMN attendance_rules.bluetooth_mac IS '蓝牙设备 MAC';
@@ -155,6 +157,7 @@ COMMENT ON COLUMN attendance_rules.created_by     IS '创建人';
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_dept ON attendance_rules(department_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_type ON attendance_rules(rule_type);
 CREATE INDEX IF NOT EXISTS idx_attendance_rules_active ON attendance_rules(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_attendance_rules_fence ON attendance_rules(fence_id);
 
 
 -- ============================================================
@@ -382,6 +385,97 @@ CREATE INDEX IF NOT EXISTS idx_fence_events_time        ON fence_events(event_ti
 CREATE INDEX IF NOT EXISTS idx_fence_events_type        ON fence_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_fence_events_unprocessed ON fence_events(processed)
     WHERE processed = false;
+
+
+-- ============================================================
+-- 8a. audit_logs — 审计日志表
+--    记录关键操作（登录/注册/增删改等）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    operator_id     UUID            NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+    operator_phone  VARCHAR(20),
+    action_type     VARCHAR(50)     NOT NULL,
+    target_type     VARCHAR(50),
+    target_id       VARCHAR(100),
+    detail          JSONB,
+    ip_address      VARCHAR(50),
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  audit_logs               IS '审计日志表 — 记录关键操作';
+COMMENT ON COLUMN audit_logs.operator_id   IS '操作人用户ID';
+COMMENT ON COLUMN audit_logs.operator_phone IS '操作人手机号（冗余，防止用户删除后丢失）';
+COMMENT ON COLUMN audit_logs.action_type   IS '操作类型：register / login / update / delete 等';
+COMMENT ON COLUMN audit_logs.target_type   IS '操作目标类型：user / customer / fence 等';
+COMMENT ON COLUMN audit_logs.target_id     IS '操作目标ID';
+COMMENT ON COLUMN audit_logs.detail        IS '操作详情（JSON）';
+COMMENT ON COLUMN audit_logs.ip_address    IS '操作来源IP';
+COMMENT ON COLUMN audit_logs.created_at    IS '操作时间';
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_operator_id  ON audit_logs(operator_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action_type   ON audit_logs(action_type);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at    ON audit_logs(created_at);
+
+
+-- ============================================================
+-- 8b. messages — 消息中心表
+--    系统/业务通知消息
+-- ============================================================
+CREATE TABLE IF NOT EXISTS messages (
+    id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title           VARCHAR(200)    NOT NULL,
+    content         TEXT            NOT NULL DEFAULT '',
+    msg_type        VARCHAR(30)     NOT NULL DEFAULT 'system',
+    biz_type        VARCHAR(30),
+    biz_id          VARCHAR(100),
+    is_read         BOOLEAN         NOT NULL DEFAULT false,
+    read_at         TIMESTAMPTZ,
+    priority        VARCHAR(10)     NOT NULL DEFAULT 'normal',
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  messages            IS '消息中心表 — 系统/业务通知';
+COMMENT ON COLUMN messages.user_id    IS '接收人';
+COMMENT ON COLUMN messages.title      IS '消息标题';
+COMMENT ON COLUMN messages.content    IS '消息内容';
+COMMENT ON COLUMN messages.msg_type   IS '消息类型：system / attendance / approval 等';
+COMMENT ON COLUMN messages.biz_type   IS '业务类型（关联业务模块）';
+COMMENT ON COLUMN messages.biz_id     IS '业务ID';
+COMMENT ON COLUMN messages.is_read    IS '是否已读';
+COMMENT ON COLUMN messages.priority   IS '优先级：normal / high / urgent';
+
+CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(user_id) WHERE is_read = false;
+
+
+-- ============================================================
+-- 8c. expenses — 费用报销表
+--    员工报销申请
+-- ============================================================
+CREATE TABLE IF NOT EXISTS expenses (
+    id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title           VARCHAR(200)    NOT NULL,
+    amount          DOUBLE PRECISION NOT NULL CHECK (amount > 0),
+    note            TEXT            DEFAULT '',
+    status          VARCHAR(20)     NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  expenses            IS '费用报销表 — 员工报销申请';
+COMMENT ON COLUMN expenses.id         IS '主键 UUID';
+COMMENT ON COLUMN expenses.user_id    IS '报销人';
+COMMENT ON COLUMN expenses.title      IS '报销标题';
+COMMENT ON COLUMN expenses.amount     IS '报销金额';
+COMMENT ON COLUMN expenses.note       IS '备注说明';
+COMMENT ON COLUMN expenses.status     IS '状态：pending(待审) / approved(已通过) / rejected(已驳回)';
+
+CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_status  ON expenses(status);
 
 
 -- ============================================================
@@ -725,7 +819,7 @@ BEGIN
         SELECT unnest(ARRAY[
             'users', 'departments', 'attendance_rules',
             'geo_fences', 'customers', 'visit_records',
-            'approvals', 'reports'
+            'approvals', 'reports', 'expenses'
         ])
     LOOP
         EXECUTE format(

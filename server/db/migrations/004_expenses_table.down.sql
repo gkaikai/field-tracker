@@ -1,0 +1,4 @@
+-- 004 — 回退费用报销表
+BEGIN;
+DROP TABLE IF EXISTS expenses CASCADE;
+COMMIT;

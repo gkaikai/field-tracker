@@ -47,6 +47,91 @@ function formatFence(f: any) {
   };
 }
 
+// 围栏自动创建打卡规则的时间默认值（创建/更新时可用 checkinStart/checkinEnd 覆盖）
+const DEFAULT_CHECKIN_START = '09:00:00';
+const DEFAULT_CHECKIN_END = '18:00:00';
+
+/**
+ * 计算打卡规则的地理参数（中心点/半径）。
+ * - circle：直接用 centerLat/centerLng/radiusMeters（缺省半径 100m）
+ * - polygon：顶点均值作为中心点，最大顶点距离 * 1.2 作为半径
+ * - 无法计算时返回 null（调用方跳过规则同步）
+ */
+function computeRuleGeo(
+  shapeType: string,
+  centerLat: number | null | undefined,
+  centerLng: number | null | undefined,
+  radiusMeters: number | null | undefined,
+  coordinates: Array<{ lat: number; lng: number }> | undefined,
+) {
+  if (shapeType === 'circle') {
+    return {
+      centerLat: centerLat ?? null,
+      centerLng: centerLng ?? null,
+      radiusMeters: radiusMeters ?? 100,
+    };
+  }
+  if (shapeType === 'polygon' && coordinates && coordinates.length >= 3) {
+    let sumLat = 0, sumLng = 0;
+    for (const p of coordinates) { sumLat += p.lat; sumLng += p.lng; }
+    const cLat = sumLat / coordinates.length;
+    const cLng = sumLng / coordinates.length;
+    let maxDist = 0;
+    const latPerM = 1.0 / 111320.0;
+    for (const p of coordinates) {
+      const dy = (p.lat - cLat) / latPerM;
+      const dx = (p.lng - cLng) / (111320.0 * Math.cos(cLat * Math.PI / 180.0));
+      maxDist = Math.max(maxDist, Math.sqrt(dx * dx + dy * dy));
+    }
+    return {
+      centerLat: cLat,
+      centerLng: cLng,
+      radiusMeters: Math.max(50, Math.round(maxDist * 1.2)),
+    };
+  }
+  return null;
+}
+
+/** 为围栏创建关联打卡规则（POST 专用） */
+async function createRuleForFence(
+  fenceId: string,
+  name: string,
+  departmentId: string | null,
+  geo: { centerLat: number | null; centerLng: number | null; radiusMeters: number },
+  checkinStart: string,
+  checkinEnd: string,
+) {
+  await pgPool.query(
+    `INSERT INTO attendance_rules (name, rule_type, department_id, center_lat, center_lng, radius_meters, checkin_start, checkin_end, is_active, fence_id)
+     VALUES ($1, 'location', $2, $3, $4, $5, $6::time, $7::time, true, $8)`,
+    [name + '打卡规则', departmentId, geo.centerLat, geo.centerLng, geo.radiusMeters, checkinStart, checkinEnd, fenceId],
+  );
+}
+
+/** 同步更新围栏关联打卡规则（PUT 专用） */
+async function syncRuleForFence(
+  fenceId: string,
+  name: string,
+  geo: { centerLat: number | null; centerLng: number | null; radiusMeters: number },
+  isActive: boolean | null | undefined,
+  checkinStart?: string,
+  checkinEnd?: string,
+) {
+  await pgPool.query(
+    `UPDATE attendance_rules SET
+       name = $1,
+       center_lat = $2,
+       center_lng = $3,
+       radius_meters = $4,
+       is_active = COALESCE($5, is_active),
+       checkin_start = COALESCE($6::time, checkin_start),
+       checkin_end = COALESCE($7::time, checkin_end),
+       updated_at = NOW()
+     WHERE fence_id = $8`,
+    [name + '打卡规则', geo.centerLat, geo.centerLng, geo.radiusMeters, isActive ?? null, checkinStart ?? null, checkinEnd ?? null, fenceId],
+  );
+}
+
 // GET /api/v1/fences — 围栏列表
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -83,12 +168,12 @@ router.post('/',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user as JwtPayload;
-      const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, departmentId, color } = req.body;
+      const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, departmentId, color, checkinStart, checkinEnd } = req.body;
 
       const result = await pgPool.query(
         `INSERT INTO geo_fences (name, department_id, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, name, department_id, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active, created_at`,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, name, department_id, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active, created_at`,
         [
           name,
           departmentId || null,
@@ -102,13 +187,18 @@ router.post('/',
         ],
       );
 
-      // 🔗 自动同步：为圆形围栏创建对应的打卡规则
-      if (shapeType === 'circle' && centerLat && centerLng && radiusMeters) {
+      // 🔗 自动同步：为圆形/多边形围栏创建对应的打卡规则
+      // 时间默认 09:00-18:00，可用 checkinStart/checkinEnd 覆盖（BUG 8 修复）
+      const geo = computeRuleGeo(shapeType, centerLat, centerLng, radiusMeters, coordinates);
+      if (geo) {
         try {
-          await pgPool.query(
-            `INSERT INTO attendance_rules (name, rule_type, department_id, center_lat, center_lng, radius_meters, checkin_start, checkin_end, is_active)
-             VALUES ($1, 'location', $2, $3, $4, $5, '06:00:00', '22:00:00', true)`,
-            [name + '打卡规则', departmentId || null, centerLat, centerLng, radiusMeters],
+          await createRuleForFence(
+            result.rows[0].id,
+            name,
+            departmentId || null,
+            geo,
+            checkinStart || DEFAULT_CHECKIN_START,
+            checkinEnd || DEFAULT_CHECKIN_END,
           );
         } catch (_ruleErr) {
           // 非致命：规则创建失败不影响围栏创建
@@ -129,17 +219,23 @@ router.put('/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, isActive, color } = req.body;
+      const { name, shapeType, centerLat, centerLng, radiusMeters, coordinates, isActive, color, checkinStart, checkinEnd } = req.body;
 
       // 先 SELECT 现有值，为 ?? 兜底做准备
       const existing = await pgPool.query(
         `SELECT name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active
-       FROM geo_fences WHERE id = $1`, [id]
+      FROM geo_fences WHERE id = $1`, [id]
       );
       if (existing.rows.length === 0) {
         return res.status(404).json({ code: ErrorCodes.FENCE_NOT_FOUND.code, message: ErrorCodes.FENCE_NOT_FOUND.message });
       }
       const cur = existing.rows[0];
+
+      // 计算更新后的围栏形态（请求缺省时兜底现有值）
+      const newShapeType = shapeType ?? cur.shape_type;
+      const newCoords = (Array.isArray(coordinates) && coordinates.length > 0)
+        ? coordinates
+        : (cur.polygon_points || undefined);
 
       const result = await pgPool.query(
         `UPDATE geo_fences SET
@@ -156,16 +252,33 @@ router.put('/:id',
         RETURNING id, name, shape_type, center_lat, center_lng, radius_meters, polygon_points, color, is_active`,
         [
           name ?? cur.name,
-          shapeType ?? cur.shape_type,
-          centerLat ?? cur.center_lat,
-          centerLng ?? cur.center_lng,
-          radiusMeters ?? cur.radius_meters,
+          newShapeType,
+          newShapeType === 'circle' ? (centerLat ?? cur.center_lat) : null,
+          newShapeType === 'circle' ? (centerLng ?? cur.center_lng) : null,
+          newShapeType === 'circle' ? (radiusMeters ?? cur.radius_meters) : null,
           Array.isArray(coordinates) && coordinates.length > 0 ? JSON.stringify(coordinates) : cur.polygon_points,
           color ?? cur.color,
           isActive ?? cur.is_active,
           id,
         ],
       );
+
+      // 🔗 同步更新关联打卡规则（经纬度/半径/名称/启用状态/时间）
+      // circle → 用 center/radius；polygon → 用顶点重算中心点+半径（避免把规则坐标清空）
+      const geo = computeRuleGeo(
+        newShapeType,
+        newShapeType === 'circle' ? (centerLat ?? cur.center_lat) : undefined,
+        newShapeType === 'circle' ? (centerLng ?? cur.center_lng) : undefined,
+        newShapeType === 'circle' ? (radiusMeters ?? cur.radius_meters) : undefined,
+        newCoords,
+      );
+      if (geo) {
+        try {
+          await syncRuleForFence(id, name ?? cur.name, geo, isActive, checkinStart, checkinEnd);
+        } catch (_ruleErr) {
+          // 非致命：规则同步失败不影响围栏更新
+        }
+      }
 
       res.json(formatFence(result.rows[0]));
     } catch (err) {
@@ -181,6 +294,12 @@ router.delete('/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      // 🔗 先清理关联打卡规则（显式删除，兼容未关联fence_id的存量规则）
+      try {
+        await pgPool.query('DELETE FROM attendance_rules WHERE fence_id = $1', [id]);
+      } catch (_ruleErr) {
+        // 非致命
+      }
       const result = await pgPool.query(
         'DELETE FROM geo_fences WHERE id = $1 RETURNING id',
         [id],

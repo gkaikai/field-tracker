@@ -1203,12 +1203,16 @@ class _FencePageState extends State<FencePage>
           const SizedBox(height: 4),
           TextField(
             controller: _circleNameCtrl,
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
             decoration: const InputDecoration(
               labelText: '围栏名称',
+              labelStyle: TextStyle(color: Color(0xFF475569)),
               hintText: '如：公司园区',
               prefixIcon: Icon(Icons.label_outline),
               border: OutlineInputBorder(),
               isDense: true,
+              filled: true,
+              fillColor: Color(0xFFF8FAFC),
             ),
           ),
           const SizedBox(height: 8),
@@ -1322,12 +1326,16 @@ class _FencePageState extends State<FencePage>
             const SizedBox(height: 12),
             TextField(
               controller: _polygonNameCtrl,
+              style: const TextStyle(fontSize: 14, color: Colors.black87),
               decoration: const InputDecoration(
                 labelText: '围栏名称',
+                labelStyle: TextStyle(color: Color(0xFF475569)),
                 hintText: '如：巡逻区域',
                 prefixIcon: Icon(Icons.label_outline),
                 border: OutlineInputBorder(),
                 isDense: true,
+                filled: true,
+                fillColor: Color(0xFFF8FAFC),
               ),
             ),
             const SizedBox(height: 12),

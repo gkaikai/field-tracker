@@ -25,3 +25,4 @@ build/
 # IDE
 .vscode/
 .idea/
+app/.flutter-plugins-dependencies

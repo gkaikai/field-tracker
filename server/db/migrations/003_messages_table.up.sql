@@ -1,4 +1,4 @@
--- 消息中心表
+-- 003 — 消息中心表
 CREATE TABLE IF NOT EXISTS messages (
     id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -14,3 +14,13 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(user_id) WHERE is_read = false;
+
+COMMENT ON TABLE  messages            IS '消息中心表 — 系统/业务通知';
+COMMENT ON COLUMN messages.user_id    IS '接收人';
+COMMENT ON COLUMN messages.title      IS '消息标题';
+COMMENT ON COLUMN messages.content    IS '消息内容';
+COMMENT ON COLUMN messages.msg_type   IS '消息类型：system / attendance / approval 等';
+COMMENT ON COLUMN messages.biz_type   IS '业务类型（关联业务模块）';
+COMMENT ON COLUMN messages.biz_id     IS '业务ID';
+COMMENT ON COLUMN messages.is_read    IS '是否已读';
+COMMENT ON COLUMN messages.priority   IS '优先级：normal / high / urgent';
