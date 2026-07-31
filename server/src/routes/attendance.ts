@@ -281,7 +281,7 @@ router.get('/records',
 // ============================================================
 
 // 内存规则存储
-interface Rule { id: number; name: string; checkin_start: string; checkin_end: string; radius_meters: number; center_lat: number | null; center_lng: number | null; wifi_ssid: string; }
+interface Rule { id: number; name: string; checkin_start: string; checkin_end: string; late_time: string | null; radius_meters: number; center_lat: number | null; center_lng: number | null; wifi_ssid: string; }
 const memRules: Rule[] = [];
 let memRuleIdSeq = 1;
 
@@ -324,15 +324,15 @@ router.post('/rules',
     try {
       // 尝试数据库
       const result = await pgPool.query(
-        `INSERT INTO attendance_rules (name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid, checkin_start, checkin_end)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO attendance_rules (name, department_id, rule_type, center_lat, center_lng, radius_meters, wifi_ssid, wifi_bssid, checkin_start, checkin_end, late_time)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
-        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || req.body.radius || 300, wifi_ssid || null, wifi_bssid || null, req.body.checkin_start || req.body.startTime || null, req.body.checkin_end || req.body.endTime || null],
+        [name, department_id || null, rule_type || 'location', center_lat || null, center_lng || null, radius_meters || req.body.radius || 300, wifi_ssid || null, wifi_bssid || null, req.body.checkin_start || req.body.startTime || null, req.body.checkin_end || req.body.endTime || null, req.body.late_time || req.body.lateTime || null],
       );
       res.status(201).json(result.rows[0]);
     } catch (err) {
       // 数据库不可用——内存回退
-      const rule: Rule = { id: memRuleIdSeq++, name: name || '默认', checkin_start: req.body.checkin_start || req.body.startTime || '09:00', checkin_end: req.body.checkin_end || req.body.endTime || '18:00', radius_meters: radius_meters || req.body.radius || 300, center_lat: center_lat || req.body.center_lat || null, center_lng: center_lng || req.body.center_lng || null, wifi_ssid: wifi_ssid || req.body.wifi_ssid || '' };
+      const rule: Rule = { id: memRuleIdSeq++, name: name || '默认', checkin_start: req.body.checkin_start || req.body.startTime || '09:00', checkin_end: req.body.checkin_end || req.body.endTime || '18:00', late_time: req.body.late_time || req.body.lateTime || null, radius_meters: radius_meters || req.body.radius || 300, center_lat: center_lat || req.body.center_lat || null, center_lng: center_lng || req.body.center_lng || null, wifi_ssid: wifi_ssid || req.body.wifi_ssid || '' };
       memRules.push(rule);
       res.status(201).json(rule);
     }
@@ -351,8 +351,8 @@ router.put('/rules/:id',
       await pgPool.query(
         `UPDATE attendance_rules SET
           name=$1, center_lat=$2, center_lng=$3, radius_meters=$4,
-          checkin_start=$5, checkin_end=$6, wifi_ssid=$7, wifi_bssid=$8
-         WHERE id=$9`,
+          checkin_start=$5, checkin_end=$6, late_time=$7, wifi_ssid=$8, wifi_bssid=$9
+         WHERE id=$10`,
         [
           'name' in req.body ? req.body.name : cur.name,
           'center_lat' in req.body ? req.body.center_lat : cur.center_lat,
@@ -360,6 +360,7 @@ router.put('/rules/:id',
           'radius_meters' in req.body ? req.body.radius_meters : ('radius' in req.body ? req.body.radius : cur.radius_meters),
           'checkin_start' in req.body ? req.body.checkin_start : ('startTime' in req.body ? req.body.startTime : cur.checkin_start),
           'checkin_end' in req.body ? req.body.checkin_end : ('endTime' in req.body ? req.body.endTime : cur.checkin_end),
+          'late_time' in req.body ? req.body.late_time : ('lateTime' in req.body ? req.body.lateTime : cur.late_time),
           'wifi_ssid' in req.body ? req.body.wifi_ssid : ('wifiName' in req.body ? req.body.wifiName : cur.wifi_ssid),
           'wifi_bssid' in req.body ? req.body.wifi_bssid : cur.wifi_bssid,
           req.params.id,

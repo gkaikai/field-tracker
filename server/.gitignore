@@ -10,4 +10,4 @@ dist/
 logs/
 .pm2/
 ecosystem.config.js
-server/uploads/
+uploads/

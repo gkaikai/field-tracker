@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS attendance_rules (
     -- 时间规则
     checkin_start   TIME,
     checkin_end     TIME,
+    late_time       TIME,
     checkout_start  TIME,
     checkout_end    TIME,
     -- 功能开关
@@ -145,6 +146,7 @@ COMMENT ON COLUMN attendance_rules.wifi_bssid    IS 'Wi-Fi BSSID（MAC）';
 COMMENT ON COLUMN attendance_rules.bluetooth_mac IS '蓝牙设备 MAC';
 COMMENT ON COLUMN attendance_rules.checkin_start IS '上班打卡开始时间';
 COMMENT ON COLUMN attendance_rules.checkin_end   IS '上班打卡截止时间';
+COMMENT ON COLUMN attendance_rules.late_time     IS '迟到时间（如 09:30 后打卡记为迟到）';
 COMMENT ON COLUMN attendance_rules.checkout_start IS '下班打卡开始时间';
 COMMENT ON COLUMN attendance_rules.checkout_end   IS '下班打卡截止时间';
 COMMENT ON COLUMN attendance_rules.allow_remote   IS '是否允许远程打卡';
