@@ -1,7 +1,6 @@
 // 消息通知页面
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import '../theme/app_theme.dart';
 import '../widgets/ft_empty_state.dart';
 import 'approval_page.dart';
 
@@ -59,7 +58,6 @@ class _MessagesPageState extends State<MessagesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_messages.isEmpty) return FTEmpty.message();
 

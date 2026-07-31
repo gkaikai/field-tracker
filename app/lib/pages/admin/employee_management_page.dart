@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/route_guard.dart';
-import '../../services/auth_service.dart';
 import '../../services/app_role.dart';
 import '../../widgets/ft_toast.dart';
 import '../../theme/app_theme.dart';
@@ -14,7 +13,7 @@ class EmployeeManagementPage extends StatefulWidget {
 }
 
 class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
-  final _api = ApiService(); final _auth = AuthService();
+  final _api = ApiService();
   List _users = []; bool _loading = true;
   final _searchCtrl = TextEditingController();
 
@@ -96,12 +95,12 @@ class _EmployeeManagementPageState extends State<EmployeeManagementPage> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         if (edit) TextButton(onPressed: () async {
-          try { await _api.delete('/api/v1/users/${user!['id']}'); if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, '已停用'); _load(); } }
+          try { await _api.delete('/api/v1/users/${user['id']}'); if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, '已停用'); _load(); } }
           catch (_) { if (mounted) FTToast.error(context, '停用失败'); }
         }, child: const Text('停用', style: TextStyle(color: Colors.red))),
         ElevatedButton(onPressed: () async {
           try {
-            if (edit) { await _api.put('/api/v1/users/${user!['id']}', data: {'name': nameCtrl.text, 'phone': phoneCtrl.text, 'role': selectedRole}); }
+            if (edit) { await _api.put('/api/v1/users/${user['id']}', data: {'name': nameCtrl.text, 'phone': phoneCtrl.text, 'role': selectedRole}); }
             else { await _api.post('/api/v1/users', data: {'name': nameCtrl.text, 'phone': phoneCtrl.text, 'role': selectedRole}); }
             if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, edit ? '更新成功' : '添加成功'); _load(); }
           } catch (_) { if (mounted) FTToast.error(context, '操作失败'); }

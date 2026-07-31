@@ -20,7 +20,6 @@ import '../attendance_rules_page.dart';
 import '../photo_gallery_page.dart';
 import 'employee_management_page.dart';
 import '../employee/employee_home_page.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -31,19 +30,10 @@ class AdminHomePage extends StatefulWidget {
 
 class _AdminHomePageState extends State<AdminHomePage> {
   final AuthService _auth = AuthService();
-  String _appVersion = '';
 
   @override
   void initState() {
     super.initState();
-    _loadVersion();
-  }
-
-  Future<void> _loadVersion() async {
-    try {
-      final pkg = await PackageInfo.fromPlatform();
-      if (mounted) setState(() => _appVersion = '${pkg.version}+${pkg.buildNumber}');
-    } catch (_) {}
   }
 
   Future<void> _checkForUpdate() async {

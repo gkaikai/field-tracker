@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import '../services/attendance_service.dart';
 import '../utils/time_utils.dart';
-import '../theme/app_theme.dart';
 
 class AttendancePage extends StatefulWidget {
   const AttendancePage({super.key});

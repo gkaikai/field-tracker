@@ -440,7 +440,6 @@ class _ClockPageState extends State<ClockPage> {
           ...(_rules.take(3).map((r) {
             final st = r['startTime']?.toString() ?? r['checkin_start']?.toString() ?? '09:00';
             final et = r['endTime']?.toString() ?? r['checkin_end']?.toString() ?? '18:00';
-            final rd = r['radius']?.toString() ?? r['radius_meters']?.toString() ?? '300';
             return _ruleRow(context, '⏰', '上下班时间', '$st - $et');
           })),
         const SizedBox(height: 8),

@@ -6,7 +6,6 @@ import '../services/api_service.dart';
 import '../services/location_uploader.dart';
 import '../config/app_config.dart';
 import '../services/error_codes.dart';
-import '../theme/app_theme.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -34,7 +33,7 @@ class _LoginPageState extends State<LoginPage> {
       Navigator.pushReplacementNamed(context, '/home');
     } on ApiException catch (e) {
       Fluttertoast.showToast(msg: '登录失败: ${e.friendlyMessage}', backgroundColor: Colors.red, gravity: ToastGravity.TOP);
-    } catch (e, stack) {
+    } catch (e) {
       Fluttertoast.showToast(msg: '登录失败', backgroundColor: Colors.red);
     } finally { if (mounted) setState(() => _loading = false); }
   }

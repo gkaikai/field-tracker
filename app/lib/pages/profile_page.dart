@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
-import '../services/amap_location_service.dart';
-import '../services/background_location_service.dart';
 import '../theme/app_theme.dart';
 import 'permission_guide_page.dart';
 

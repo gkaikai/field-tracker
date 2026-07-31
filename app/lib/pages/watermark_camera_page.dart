@@ -22,13 +22,12 @@ class _WatermarkCameraPageState extends State<WatermarkCameraPage> {
   bool _isReady = false, _isProcessing = false, _isUploading = false;
   String? _lastPhotoPath, _lastPhotoUploadUrl;
   double? _currentLat, _currentLng;
-  String _address = '', _currentTime = '';
+  String _address = '';
   final AuthService _auth = AuthService();
 
   @override
   void initState() {
     super.initState();
-    _currentTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
     _initCamera(); _getLocation();
   }
 

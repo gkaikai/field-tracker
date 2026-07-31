@@ -12,7 +12,7 @@ class ReportPage extends StatefulWidget {
 class _ReportPageState extends State<ReportPage> {
   final ApiService _api = ApiService();
   List<dynamic> _reports = []; String _filterType = 'all';
-  bool _loading = true; int _total = 0;
+  bool _loading = true;
 
   @override
   void initState() { super.initState(); _loadReports(); }
@@ -22,14 +22,14 @@ class _ReportPageState extends State<ReportPage> {
     try {
       final query = _filterType == 'all' ? '' : '?type=$_filterType';
       final resp = await _api.get('/api/v1/reports$query');
-      setState(() { _reports = resp.data['reports'] as List<dynamic>; _total = ((resp.data['pagination'] as Map?)?['total'] as int?) ?? 0; _loading = false; });
+      setState(() { _reports = resp.data['reports'] as List<dynamic>; _loading = false; });
     } catch (_) { if (mounted) setState(() => _loading = false); }
   }
 
   Future<void> _createReport() async {
     final contentCtrl = TextEditingController();
     String selectedType = 'daily';
-    final result = await showDialog<Map<String, String>>(context: context, builder: (ctx) => StatefulBuilder(
+    await showDialog<Map<String, String>>(context: context, builder: (ctx) => StatefulBuilder(
       builder: (ctx, setS) => AlertDialog(
         title: const Text('写工作汇报'),
         content: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [

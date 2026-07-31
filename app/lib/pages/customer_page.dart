@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/route_guard.dart';
 import '../theme/app_theme.dart';
-import '../config/app_config.dart';
 import '../config/amap_key.dart';
 import '../widgets/ft_toast.dart';
-import '../theme/app_theme.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -96,14 +94,14 @@ class _CustomerPageState extends State<CustomerPage> {
       ]))),
       actions: [
         if (edit) TextButton(onPressed: () async {
-          try { await _api.delete('/api/v1/customers/${existing!['id']}'); if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, '已删除'); _load(); } }
+          try { await _api.delete('/api/v1/customers/${existing['id']}'); if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, '已删除'); _load(); } }
           catch (_) { if (mounted) FTToast.error(context, '删除失败'); }
         }, child: const Text('删除', style: TextStyle(color: Colors.red))),
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
         ElevatedButton(onPressed: () async {
           final data = {'name': nc.text, 'phone': pc.text, 'lat': selectedLat, 'lng': selectedLng, 'address': searchCtrl.text};
           try {
-            if (edit) { await _api.put('/api/v1/customers/${existing!['id']}', data: data); }
+            if (edit) { await _api.put('/api/v1/customers/${existing['id']}', data: data); }
             else { await _api.post('/api/v1/customers', data: data); }
             if (ctx.mounted) Navigator.pop(ctx); if (mounted) { FTToast.success(context, edit ? '已更新' : '已添加'); _load(); }
           } catch (_) { if (mounted) FTToast.error(context, '操作失败'); }
@@ -135,7 +133,6 @@ class _CustomerPageState extends State<CustomerPage> {
                 separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
                 itemBuilder: (context, i) {
                   final c = _customers[i] as Map<String, dynamic>;
-                  final tags = (c['tags'] as List?)?.cast<String>() ?? [];
                   final visitCount = c['visitCount'] ?? 0;
                   return ListTile(
                     leading: Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(10)),

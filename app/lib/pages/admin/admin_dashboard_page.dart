@@ -1,7 +1,6 @@
 // 管理驾驶舱 v2 — 仪表盘卡片+团队考勤列表
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
-import '../../utils/time_utils.dart';
 import '../../theme/app_theme.dart';
 class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
@@ -13,7 +12,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   final ApiService _api = ApiService();
   bool _isLoading = true;
   Map<String, dynamic> _stats = {};
-  List _teamStatus = []; List _recentVisits = [];
+  List _teamStatus = [];
   String? _error;
 
   @override
@@ -26,7 +25,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       final results = await Future.wait([
         _api.get('/api/v1/attendance/stats?startDate=$today&endDate=$today'),
         _api.get('/api/v1/attendance/my-status'),
-        _api.get('/api/v1/visits/history?pageSize=10'),
       ]);
       final statsList = results[0].data['stats'] as List? ?? [];
       setState(() {
@@ -34,7 +32,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         _teamStatus = statsList.map((s) => {
           'name': s['name'] ?? '员工', 'checkedIn': (s['checkin_count'] ?? 0) > 0, 'checkinTime': '',
         }).toList();
-        _recentVisits = (results[2].data['visits'] as List?) ?? [];
         _isLoading = false;
       });
     } catch (_) {
